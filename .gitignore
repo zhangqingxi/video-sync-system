@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project Specific
+config.ini
+state.json
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Credentials
+*.pem
+*.key
+*.crt
+*.p12
+credentials.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Backup
+*.bak
+*.backup
+*.tmp

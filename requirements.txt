@@ -1,0 +1,32 @@
+# Python 3.11+ 依赖清单
+#
+# 安装方法:
+# pip install -r requirements.txt
+
+# 核心依赖
+requests==2.31.0
+pymysql==1.1.0
+urllib3==2.1.0
+
+# AWS S3
+boto3==1.34.19
+botocore==1.34.19
+
+# 阿里云OSS
+alibabacloud-oss-v2==0.2.0
+
+# 加密库
+pycryptodome==3.19.1
+
+# 类型检查（开发环境）
+mypy==1.8.0
+types-requests==2.31.0.10
+
+# 代码格式化（开发环境）
+black==24.1.1
+flake8==7.0.0
+isort==5.13.2
+
+# 测试（开发环境）
+pytest==7.4.4
+pytest-cov==4.1.0

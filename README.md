@@ -80,7 +80,7 @@ video-sync-system/
 ├── requirements.txt # 依赖清单
 ├── README.md # 项目文档
 └── .gitignore # Git忽略配置
-
+```
 
 ## 🛠️ 安装部署
 

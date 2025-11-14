@@ -106,7 +106,7 @@ def run_scraper(config: Any) -> None:
                 logger.error(f"API请求失败 (页码: {current_page})，脚本终止")
                 break
             
-            response_code: int = response_data.get('code')
+            response_code: int = response_data.get('code', -1)
             
             # 处理Token过期
             if response_code == 402:
@@ -137,7 +137,7 @@ def run_scraper(config: Any) -> None:
                 
                 # 处理每个视频
                 for video in videos:
-                    douban_id: str = video.get('id')
+                    douban_id: str = video.get('id', '')
                     title: str = video.get('title', '')
                     
                     # 检查是否已存在
@@ -204,47 +204,47 @@ def run_scraper(config: Any) -> None:
                     # 避免请求过快
                     time.sleep(0.5)
                 
-                # 同步到站点
-                if processed_ids:
-                    try:
-                        logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
+                # # 同步到站点
+                # if processed_ids:
+                #     try:
+                #         logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
                         
-                        # 从数据库查询视频数据
-                        site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
-                            douban_ids=list(processed_ids)
-                        )
+                #         # 从数据库查询视频数据
+                #         site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
+                #             douban_ids=list(processed_ids)
+                #         )
                         
-                        if not site_videos:
-                            raise Exception("从数据库查询视频数据为空")
+                #         if not site_videos:
+                #             raise Exception("从数据库查询视频数据为空")
                         
-                        # 同步到站点
-                        sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
-                            videos=site_videos
-                        )
+                #         # 同步到站点
+                #         sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
+                #             videos=site_videos
+                #         )
                         
-                        # 更新失败记录
-                        if sync_failed_ids:
-                            for domain, domain_failed_ids in sync_failed_ids.items():
-                                if domain in failed_site:
-                                    failed_site[domain] |= domain_failed_ids
-                                else:
-                                    failed_site[domain] = domain_failed_ids
+                #         # 更新失败记录
+                #         if sync_failed_ids:
+                #             for domain, domain_failed_ids in sync_failed_ids.items():
+                #                 if domain in failed_site:
+                #                     failed_site[domain] |= domain_failed_ids
+                #                 else:
+                #                     failed_site[domain] = domain_failed_ids
                                     
-                    except Exception as e:
-                        logger.error(f"站点同步失败: {e}")
+                #     except Exception as e:
+                #         logger.error(f"站点同步失败: {e}")
                         
-                        # 记录所有视频到所有域名的失败列表
-                        domains_str: str = config.get('site', 'domains', fallback='')
-                        domains: list[str] = [
-                            d.strip() for d in domains_str.split(',') if d.strip()
-                        ]
+                #         # 记录所有视频到所有域名的失败列表
+                #         domains_str: str = config.get('site', 'domains', fallback='')
+                #         domains: list[str] = [
+                #             d.strip() for d in domains_str.split(',') if d.strip()
+                #         ]
                         
-                        for domain in domains:
-                            failed_site.setdefault(domain, set()).update(processed_ids)
-                    finally:
-                        site_handler.close()
-                else:
-                    logger.info("本页没有需要同步到站点的新视频")
+                #         for domain in domains:
+                #             failed_site.setdefault(domain, set()).update(processed_ids)
+                #     finally:
+                #         site_handler.close()
+                # else:
+                #     logger.info("本页没有需要同步到站点的新视频")
                 
                 # 保存状态
                 state['last_synced_page'] = current_page
@@ -325,7 +325,7 @@ def run_oss_fixer(config: Any) -> None:
                     logger.error(f"获取详情失败 (douban_id: {douban_id})")
                     break
                 
-                response_code: int = response_data.get('code')
+                response_code: int = response_data.get('code', -1)
                 
                 if response_code == 0:
                     details: dict[str, Any] | None = response_data.get('data')
@@ -446,7 +446,7 @@ def run_s3_fixer(config: Any) -> None:
                     logger.error(f"获取详情失败 (douban_id: {douban_id})")
                     break
                 
-                response_code: int = response_data.get('code')
+                response_code: int = response_data.get('code', -1)
                 
                 if response_code == 0:
                     details: dict[str, Any] | None = response_data.get('data')

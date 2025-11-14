@@ -12,13 +12,15 @@ Date: 2025-01-14
 import base64
 import hashlib
 import logging
-from configparser import ConfigParser
+from configparser import ConfigParser, SectionProxy
 from urllib.parse import urljoin
 
 import boto3
 import requests
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from Crypto.Cipher import AES
+from Crypto.Cipher._mode_cbc import CbcMode
 from Crypto.Util.Padding import pad, unpad
 from requests.adapters import HTTPAdapter
 from requests.sessions import Session
@@ -80,28 +82,43 @@ class S3Handler:
         Raises:
             KeyError: 当配置中缺少必要的S3配置项时抛出
         """
-        self.config: ConfigParser = config
+        s3_config: SectionProxy = config['aws_s3']
+        try:
+            access_key_id: str = s3_config['access_key_id'].strip()
+            access_key_secret: str = s3_config['secret_access_key'].strip()
+            self.region: str = s3_config['region'].strip()
+            self.bucket_name: str = s3_config['bucket_name'].strip()
+        except KeyError as e:
+            raise KeyError(f"S3配置缺失必需项: {e}")
         
-        # 读取AWS配置
-        access_key_id: str = config.get('aws_s3', 'access_key_id')
-        secret_access_key: str = config.get('aws_s3', 'secret_access_key')
-        self.bucket_name: str = config.get('aws_s3', 'bucket_name')
-        self.region_name: str = config.get('aws_s3', 'region_name')
+        # 验证必需配置项不为空
+        if not access_key_id:
+            raise ValueError("S3 access_key_id 不能为空")
+        if not access_key_secret:
+            raise ValueError("S3 secret_access_key 不能为空")
+        if not self.region:
+            raise ValueError("S3 region 不能为空")
+        if not self.bucket_name:
+            raise ValueError("S3 bucket_name 不能为空")
+
+        # 可选：设置超时时间
+        connect_timeout = s3_config.getint('connect_timeout', fallback=60)
+        readwrite_timeout = s3_config.getint('readwrite_timeout', fallback=300)
         
         # 配置boto3客户端
         botocore_config: Config = Config(
             max_pool_connections=100,
             retries={'max_attempts': 3, 'mode': 'standard'},
-            read_timeout=60,
-            connect_timeout=60
+            read_timeout=readwrite_timeout,
+            connect_timeout=connect_timeout
         )
         
         # 初始化S3客户端
         self.s3 = boto3.client(
             service_name='s3',
             aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
-            region_name=self.region_name,
+            aws_secret_access_key=access_key_secret,
+            region_name=self.region,
             config=botocore_config
         )
         
@@ -142,7 +159,7 @@ class S3Handler:
         adapter: HTTPAdapter = HTTPAdapter(
             pool_connections=20,
             pool_maxsize=20,
-            max_retries=retry_strategy
+            max_retries=retry_strategy,
         )
         
         session.mount(prefix='http://', adapter=adapter)
@@ -210,7 +227,7 @@ class S3Handler:
         Returns:
             str: Base64编码的加密字符串
         """
-        cipher: AES = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
+        cipher: CbcMode = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
         padded: bytes = pad(data_to_pad=plaintext.encode('utf-8'), block_size=AES.block_size)
         encrypted: bytes = cipher.encrypt(padded)
         return base64.urlsafe_b64encode(encrypted).decode('utf-8').rstrip('=')
@@ -225,7 +242,7 @@ class S3Handler:
         Returns:
             str: 解密后的明文
         """
-        cipher: AES = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
+        cipher: CbcMode = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
         encrypted_data: bytes = base64.urlsafe_b64decode(
             encrypted_text + '=' * (4 - len(encrypted_text) % 4)
         )
@@ -249,17 +266,21 @@ class S3Handler:
             self.s3.head_object(Bucket=self.bucket_name, Key=s3_key)
             logger.debug(f"S3对象存在: {s3_key}")
             return True
-        except Exception as e:
-            # 404或NoSuchKey表示对象不存在，是正常情况
-            if hasattr(e, 'response') and e.response.get('Error', {}).get('Code') == '404':
-                logger.debug(f"S3对象不存在: {s3_key}")
-                return False
-            elif 'NoSuchKey' in str(e) or 'Not Found' in str(e):
+        except ClientError as e:
+            # 获取错误代码
+            error_code: str = e.response.get('Error', {}).get('Code', '')
+            
+            if error_code == '404' or error_code == 'NoSuchKey':
                 logger.debug(f"S3对象不存在: {s3_key}")
                 return False
             else:
-                logger.error(f"检查S3对象时发生错误: {e}")
+                # 其他错误（如权限问题）记录日志
+                logger.error(f"检查S3对象时发生错误 ({error_code}): {e}")
                 return False
+        except Exception as e:
+            # 捕获其他非预期异常
+            logger.error(f"检查S3对象时发生未知错误: {e}")
+            return False
     
     def upload_m3u8_stream(self, m3u8_url: str, s3_base_key: str) -> bool:
         """

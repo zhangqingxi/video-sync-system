@@ -26,16 +26,23 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 # 模块级日志记录器
 logger: logging.Logger = logging.getLogger(__name__)
 
+# 配置缓存（避免重复加载）
+_config_cache: ConfigParser | None = None
+
 
 # ============================================================================
 # 配置管理函数
 # ============================================================================
 
-def load_config() -> ConfigParser:
+def load_config(force_reload: bool = False) -> ConfigParser:
     """
-    加载并解析项目配置文件
+    加载并解析项目配置文件（带缓存机制）
     
     从项目根目录读取 config.ini 文件并返回配置解析器对象。
+    使用缓存机制避免重复读取文件。
+    
+    Args:
+        force_reload: 是否强制重新加载配置，默认为False
     
     Returns:
         ConfigParser: 配置解析器对象，包含所有配置项
@@ -47,10 +54,20 @@ def load_config() -> ConfigParser:
     Example:
         >>> config = load_config()
         >>> db_host = config.get('database', 'host')
+        >>> # 强制重新加载配置
+        >>> config = load_config(force_reload=True)
     
     Note:
         配置文件必须使用UTF-8编码
+        配置会被缓存，除非使用 force_reload=True
     """
+    global _config_cache
+    
+    # 如果有缓存且不强制重新加载，直接返回缓存
+    if _config_cache is not None and not force_reload:
+        logger.debug("使用缓存的配置")
+        return _config_cache
+    
     config: ConfigParser = ConfigParser()
     config_path: Path = BASE_DIR / 'config.ini'
     
@@ -61,6 +78,7 @@ def load_config() -> ConfigParser:
     
     try:
         config.read(config_path, encoding='utf-8')
+        _config_cache = config  # 缓存配置
         logger.info(f"配置文件加载成功: {config_path}")
         return config
     except Exception as e:
@@ -68,9 +86,36 @@ def load_config() -> ConfigParser:
         raise
 
 
+def clear_config_cache() -> None:
+    """
+    清除配置缓存
+    
+    在需要重新加载配置时调用此函数。
+    
+    Example:
+        >>> clear_config_cache()
+        >>> config = load_config()  # 将重新读取文件
+    """
+    global _config_cache
+    _config_cache = None
+    logger.debug("配置缓存已清除")
+
+
 # ============================================================================
 # 状态管理函数
 # ============================================================================
+
+def _get_state_file_path() -> Path:
+    """
+    获取状态文件路径（内部函数）
+    
+    Returns:
+        Path: 状态文件的完整路径
+    """
+    config: ConfigParser = load_config()
+    state_file: str = config.get('project_state', 'state_file', fallback='state.json')
+    return BASE_DIR / state_file
+
 
 def load_state() -> dict[str, Any]:
     """
@@ -98,13 +143,12 @@ def load_state() -> dict[str, Any]:
         >>> state = load_state()
         >>> current_page = state.get('last_synced_page', 0)
     """
-    config: ConfigParser = load_config()
-    state_file_path: Path = BASE_DIR / config.get('project_state', 'state_file')
+    state_file_path: Path = _get_state_file_path()
     
     # 文件不存在时初始化默认状态
     if not state_file_path.exists():
         logger.warning(f"状态文件不存在，创建默认状态: {state_file_path}")
-        initial_state: dict[str, any] = {
+        initial_state: dict[str, Any] = {
             "last_synced_page": 0,
             "api_token": None,
             "failed_synced_ids": [],
@@ -148,8 +192,7 @@ def save_state(data: dict[str, Any]) -> None:
     Note:
         保存时会格式化JSON输出，缩进为4个空格
     """
-    config: ConfigParser = load_config()
-    state_file_path: Path = BASE_DIR / config.get('project_state', 'state_file')
+    state_file_path: Path = _get_state_file_path()
     
     try:
         with open(state_file_path, mode='w', encoding='utf-8') as f:

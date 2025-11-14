@@ -107,15 +107,19 @@ class HourlyDirectoryLogHandler(FileHandler):
         
         # 检查是否需要切换日志文件
         if self.baseFilename != str(current_log_path):
-            # 关闭当前文件流
-            self.close()
-            
-            # 更新文件路径
-            self.baseFilename = str(current_log_path)
-            self.stream = None
-            
             # 确保新目录存在
             current_log_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 关闭当前文件流
+            if self.stream:
+                self.stream.close()
+            
+            # 更新文件路径并重新打开
+            self.baseFilename = str(current_log_path)
+            self.mode = 'a'  # 追加模式
+            
+            # 强制重新打开文件
+            self._open()
         
         # 调用父类方法完成日志写入
         super().emit(record)

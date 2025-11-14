@@ -12,12 +12,13 @@ Date: 2025-01-14
 import base64
 import hashlib
 import logging
-from configparser import ConfigParser
+from configparser import ConfigParser, SectionProxy
 from urllib.parse import urljoin
 
 import alibabacloud_oss_v2 as oss
 import requests
 from Crypto.Cipher import AES
+from Crypto.Cipher._mode_cbc import CbcMode
 from Crypto.Util.Padding import pad, unpad
 from requests.adapters import HTTPAdapter
 from requests.sessions import Session
@@ -78,35 +79,69 @@ class OSSHandler:
         Raises:
             KeyError: 当配置中缺少必要的OSS配置项时抛出
         """
-        # 读取配置
-        self.config: ConfigParser = config
-        self.region: str = config.get('oss', 'region')
-        self.bucket_name: str = config.get('oss', 'bucket_name')
-        access_key_id: str = config.get('oss', 'access_key_id')
-        access_key_secret: str = config.get('oss', 'access_key_secret')
+        oss_config: SectionProxy = config['aliyun_oss']
+        try:
+            access_key_id: str = oss_config['access_key_id'].strip()
+            access_key_secret: str = oss_config['secret_access_key'].strip()
+            self.region: str = oss_config['region'].strip()
+            self.bucket_name: str = oss_config['bucket_name'].strip()
+            self.endpoint: str = oss_config['endpoint'].strip()
+        except KeyError as e:
+            raise KeyError(f"OSS配置缺失必需项: {e}")
         
-        # 创建凭证提供者
-        credentials_provider: oss.credentials.CredentialsProvider = \
-            oss.credentials.StaticCredentialsProvider(
-                access_key_id=access_key_id,
-                access_key_secret=access_key_secret
-            )
+        # 验证必需配置项不为空
+        if not access_key_id:
+            raise ValueError("OSS access_key_id 不能为空")
+        if not access_key_secret:
+            raise ValueError("OSS secret_access_key 不能为空")
+        if not self.region:
+            raise ValueError("OSS region 不能为空")
+        if not self.bucket_name:
+            raise ValueError("OSS bucket_name 不能为空")
+        if not self.endpoint:
+            raise ValueError("OSS endpoint 不能为空")
+        
+         # 创建凭证提供者
+        try:
+            credentials_provider: oss.credentials.CredentialsProvider = \
+                oss.credentials.StaticCredentialsProvider(
+                    access_key_id=access_key_id,
+                    access_key_secret=access_key_secret
+                )
+            logger.debug("OSS凭证提供者创建成功")
+        except Exception as e:
+            logger.error(f"创建OSS凭证提供者失败: {e}")
+            raise
         
         # 加载并配置OSS客户端
-        cfg: oss.config.Config = oss.config.load_default()
-        cfg.credentials_provider = credentials_provider
-        cfg.region = self.region
-        
-        self.client: oss.Client = oss.Client(config=cfg)
+        try:
+            cfg: oss.config.Config = oss.config.load_default()
+            cfg.credentials_provider = credentials_provider
+            cfg.region = self.region
+            cfg.endpoint = self.endpoint
+            
+            # 可选：设置超时时间
+            cfg.connect_timeout = oss_config.getint('connect_timeout', fallback=60)
+            cfg.readwrite_timeout = oss_config.getint('readwrite_timeout', fallback=300)
+            cfg.connect_timeout = oss_config.getint('connect_timeout', fallback=60)
+            
+            self.client: oss.Client = oss.Client(config=cfg)
+            logger.debug("OSS客户端创建成功")
+        except Exception as e:
+            logger.error(f"创建OSS客户端失败: {e}")
+            raise
         
         # 初始化AES加密配置
-        self.encryption_key: str = config.get('oss', 'encryption_key', fallback='default_key_12345')
+        self.encryption_key: str = oss_config.get('encryption_key', fallback='default_key_12345')
         key_bytes: bytes = self.encryption_key.encode('utf-8')
         self.aes_key: bytes = hashlib.sha256(key_bytes).digest()
         self.aes_iv: bytes = hashlib.md5(key_bytes).digest()[:16]
         
         # 初始化HTTP会话
         self.session: Session = self._setup_session()
+
+        # 超时配置
+        self.request_timeout: int = oss_config.getint('request_timeout', fallback=60)
         
         logger.info("OSS处理器初始化完成")
     
@@ -201,7 +236,7 @@ class OSSHandler:
         Returns:
             str: Base64编码的加密字符串
         """
-        cipher: AES = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
+        cipher: CbcMode = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
         padded: bytes = pad(data_to_pad=plaintext.encode('utf-8'), block_size=AES.block_size)
         encrypted: bytes = cipher.encrypt(padded)
         return base64.urlsafe_b64encode(encrypted).decode('utf-8').rstrip('=')
@@ -216,7 +251,7 @@ class OSSHandler:
         Returns:
             str: 解密后的明文
         """
-        cipher: AES = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
+        cipher: CbcMode = AES.new(key=self.aes_key, mode=AES.MODE_CBC, iv=self.aes_iv)
         encrypted_data: bytes = base64.urlsafe_b64decode(
             encrypted_text + '=' * (4 - len(encrypted_text) % 4)
         )
@@ -271,7 +306,7 @@ class OSSHandler:
             logger.info(f"开始下载m3u8: {m3u8_url}")
             response: requests.Response = self.session.get(
                 url=m3u8_url,
-                timeout=60,
+                timeout=self.request_timeout,
                 headers=headers,
                 verify=False
             )
@@ -328,7 +363,7 @@ class OSSHandler:
             logger.info(f"开始下载图片: {image_url}")
             response: requests.Response = self.session.get(
                 url=image_url,
-                timeout=30,
+                timeout=self.request_timeout,
                 headers=headers,
                 verify=False
             )
@@ -455,6 +490,8 @@ class OSSHandler:
                 resource_type='m3u8',
                 episode=episode
             )
+            print(oss_key)
+            exit(0)
             
             if not self.upload_m3u8_stream(m3u8_url=episode_url, oss_base_key=oss_key):
                 raise Exception("M3U8同步失败")

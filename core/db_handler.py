@@ -82,7 +82,7 @@ class DatabaseHandler:
         db_config: SectionProxy = config['database']
         
         # 数据库连接参数
-        self.conn_params: dict[str, str] = {
+        self.conn_params: dict[str, Any] = {
             'host': db_config.get('host', fallback='localhost'),
             'user': db_config.get('user', fallback='root'),
             'password': db_config.get('password', fallback=''),

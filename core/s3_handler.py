@@ -392,7 +392,7 @@ class S3Handler:
     
     def process_single_video_sync(
         self,
-        douban_id: int,
+        douban_id: str,
         title: str,
         video_list: list[str],
         cover: str
@@ -457,7 +457,7 @@ class S3Handler:
     
     def process_single_video_episode_sync(
         self,
-        douban_id: int,
+        douban_id: str,
         title: str,
         episode: int,
         episode_url: str,

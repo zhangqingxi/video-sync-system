@@ -73,9 +73,10 @@ def run_scraper(config: Any) -> None:
     
     # 加载状态
     state: dict[str, Any] = load_state()
-    current_page: int = state.get('last_synced_page', 0)
-    failed_synced_ids: list[int] = state.get('failed_synced_ids', [])
-    failed_site: dict[str, set] = state.get('failed_site', {})
+    current_page: int = state.get('api', {}).get('last_page', 0)
+    failed_synced_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
+    failed_site: dict[str, set] = state.get('site', {}).get('failed_domain_ids', {})
+    failed_detail_ids: list[str] = state.get('api', {}).get('failed_detail_ids', [])
     
     # 从头开始时重置页码
     if current_page == 0:
@@ -91,7 +92,7 @@ def run_scraper(config: Any) -> None:
     site_handler: SiteHandler = SiteHandler(config=config)
     
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
         logger.info("使用缓存的API Token")
@@ -114,7 +115,7 @@ def run_scraper(config: Any) -> None:
                 new_token: str | None = api.login()
                 
                 if new_token:
-                    state['api_token'] = new_token
+                    state['api']['token'] = new_token
                     save_state(data=state)
                     logger.info("重新登录成功，将重试请求当前页面")
                     continue  # 重试当前页
@@ -156,6 +157,7 @@ def run_scraper(config: Any) -> None:
                         
                         if not details:
                             logger.warning(f"视频详情为空，跳过: {douban_id}")
+                            failed_detail_ids.append(douban_id)
                             continue
                         
                         # 更新视频数据
@@ -175,6 +177,7 @@ def run_scraper(config: Any) -> None:
                         })
                     else:
                         logger.warning(f"获取视频详情失败: {douban_id}")
+                        failed_detail_ids.append(douban_id)
                         continue
                     
                     # 插入数据库
@@ -196,60 +199,60 @@ def run_scraper(config: Any) -> None:
                         
                         if not result:
                             logger.error(f"OSS同步失败: {douban_id}")
-                            failed_synced_ids.append(int(douban_id))
+                            failed_synced_ids.append(douban_id)
                     except Exception as e:
                         logger.error(f"OSS同步异常: {douban_id}, 错误: {e}")
-                        failed_synced_ids.append(int(douban_id))
+                        failed_synced_ids.append(douban_id)
                     
                     # 避免请求过快
                     time.sleep(0.5)
                 
-                # # 同步到站点
-                # if processed_ids:
-                #     try:
-                #         logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
+                # 同步到站点
+                if processed_ids:
+                    try:
+                        logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
                         
-                #         # 从数据库查询视频数据
-                #         site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
-                #             douban_ids=list(processed_ids)
-                #         )
+                        # 从数据库查询视频数据
+                        site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
+                            douban_ids=list(processed_ids)
+                        )
                         
-                #         if not site_videos:
-                #             raise Exception("从数据库查询视频数据为空")
+                        if not site_videos:
+                            raise Exception("从数据库查询视频数据为空")
                         
-                #         # 同步到站点
-                #         sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
-                #             videos=site_videos
-                #         )
+                        # 同步到站点
+                        sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
+                            videos=site_videos
+                        )
                         
-                #         # 更新失败记录
-                #         if sync_failed_ids:
-                #             for domain, domain_failed_ids in sync_failed_ids.items():
-                #                 if domain in failed_site:
-                #                     failed_site[domain] |= domain_failed_ids
-                #                 else:
-                #                     failed_site[domain] = domain_failed_ids
+                        # 更新失败记录
+                        if sync_failed_ids:
+                            for domain, domain_failed_ids in sync_failed_ids.items():
+                                if domain in failed_site:
+                                    failed_site[domain] |= domain_failed_ids
+                                else:
+                                    failed_site[domain] = domain_failed_ids
                                     
-                #     except Exception as e:
-                #         logger.error(f"站点同步失败: {e}")
+                    except Exception as e:
+                        logger.error(f"站点同步失败: {e}")
                         
-                #         # 记录所有视频到所有域名的失败列表
-                #         domains_str: str = config.get('site', 'domains', fallback='')
-                #         domains: list[str] = [
-                #             d.strip() for d in domains_str.split(',') if d.strip()
-                #         ]
+                        # 记录所有视频到所有域名的失败列表
+                        domains_str: str = config.get('site', 'domains', fallback='')
+                        domains: list[str] = [
+                            d.strip() for d in domains_str.split(',') if d.strip()
+                        ]
                         
-                #         for domain in domains:
-                #             failed_site.setdefault(domain, set()).update(processed_ids)
-                #     finally:
-                #         site_handler.close()
-                # else:
-                #     logger.info("本页没有需要同步到站点的新视频")
+                        for domain in domains:
+                            failed_site.setdefault(domain, set()).update(processed_ids)
+                    finally:
+                        site_handler.close()
+                else:
+                    logger.info("本页没有需要同步到站点的新视频")
                 
                 # 保存状态
-                state['last_synced_page'] = current_page
-                state['failed_synced_ids'] = failed_synced_ids
-                state['failed_site'] = {k: list(v) for k, v in failed_site.items()}
+                state['oss']['last_page'] = current_page
+                state['oss']['failed_synced_ids'] = failed_synced_ids
+                state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
                 save_state(data=state)
                 
                 # 处理下一页
@@ -290,7 +293,7 @@ def run_oss_fixer(config: Any) -> None:
     logger.info("=" * 80)
     
     state: dict[str, Any] = load_state()
-    fix_ids: list[int] = state.get('failed_synced_ids', [])
+    fix_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
     
     if not fix_ids:
         logger.info("没有需要修复的OSS记录")
@@ -303,7 +306,7 @@ def run_oss_fixer(config: Any) -> None:
     oss_handler: OSSHandler = OSSHandler(config=config)
     
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
     
@@ -365,7 +368,7 @@ def run_oss_fixer(config: Any) -> None:
                     new_token: str | None = api.login()
                     
                     if new_token:
-                        state['api_token'] = new_token
+                        state['api']['token'] = new_token
                         save_state(data=state)
                         continue
                     else:
@@ -381,7 +384,7 @@ def run_oss_fixer(config: Any) -> None:
             time.sleep(1)
         
         # 更新状态
-        state['failed_synced_ids'] = failed_synced_ids
+        state['oss']['failed_synced_ids'] = failed_synced_ids
         save_state(data=state)
         
     finally:
@@ -411,7 +414,7 @@ def run_s3_fixer(config: Any) -> None:
     logger.info("=" * 80)
     
     state: dict[str, Any] = load_state()
-    fix_ids: list[int] = state.get('failed_synced_ids', [])
+    fix_ids: list[int] = state.get('s3', {}).get('failed_synced_ids', [])
     
     if not fix_ids:
         logger.info("没有需要修复的S3记录")
@@ -424,7 +427,7 @@ def run_s3_fixer(config: Any) -> None:
     s3_handler: S3Handler = S3Handler(config=config)
     
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
     
@@ -486,7 +489,7 @@ def run_s3_fixer(config: Any) -> None:
                     new_token: str | None = api.login()
                     
                     if new_token:
-                        state['api_token'] = new_token
+                        state['api']['token'] = new_token
                         save_state(data=state)
                         continue
                     else:
@@ -502,7 +505,7 @@ def run_s3_fixer(config: Any) -> None:
             time.sleep(1)
         
         # 更新状态
-        state['failed_synced_ids'] = failed_synced_ids
+        state['s3']['failed_synced_ids'] = failed_synced_ids
         save_state(data=state)
         
     finally:
@@ -534,7 +537,7 @@ def run_site_fixer(config: Any) -> None:
     state: dict[str, Any] = load_state()
     db: DatabaseHandler = DatabaseHandler(config=config)
     site_handler: SiteHandler = SiteHandler(config=config)
-    fix_sites: dict[str, list[str]] = state.get('failed_site', {})
+    fix_sites: dict[str, list[str]] = state.get('site', {}).get('failed_domain_ids', {})
     failed_site: dict[str, set[str]] = {}
     
     if not fix_sites:
@@ -575,7 +578,7 @@ def run_site_fixer(config: Any) -> None:
                 failed_site[domain] = set(failed_ids)
         
         # 更新状态
-        state['failed_site'] = {k: list(v) for k, v in failed_site.items()}
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
         save_state(data=state)
         
     finally:

@@ -180,7 +180,7 @@ class OSSHandler:
     def generate_oss_key(
         self,
         title: str,
-        douban_id: int,
+        douban_id: str,
         key: str,
         resource_type: str,
         episode: int | None = None
@@ -386,7 +386,7 @@ class OSSHandler:
     
     def process_single_video_sync(
         self,
-        douban_id: int,
+        douban_id: str,
         title: str,
         video_list: list[str],
         cover: str
@@ -451,7 +451,7 @@ class OSSHandler:
     
     def process_single_video_episode_sync(
         self,
-        douban_id: int,
+        douban_id: str,
         title: str,
         episode: int,
         episode_url: str,

@@ -1,7 +1,27 @@
 {
-    "last_synced_page": 0,
-    "api_token": null,
-    "failed_synced_ids": [],
-    "failed_site": {},
-    "filed_detail_ids": []
+    "api": {
+        "last_page": 0,
+        "token": ""
+    },
+    "s3": {
+        "last_douban_id": 0,
+        "last_checked_id": 0,
+        "failed_checked_ids": [],
+        "failed_synced_ids": []
+    },   
+    "oss":{
+        "last_douban_id": 0,
+        "last_checked_id": 0,
+        "failed_checked_ids": [],
+        "failed_synced_ids": []
+    },
+    "site": {
+        "failed_domain_ids": []
+    },
+    "local":{
+        "last_douban_id": 0,
+        "last_checked_id": 0,
+        "failed_checked_ids": [],
+        "failed_synced_ids": []
+    }
 }

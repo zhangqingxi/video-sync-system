@@ -11,6 +11,7 @@ Date: 2025-01-14
 
 import logging
 import sys
+import threading
 from datetime import datetime
 from logging import FileHandler, Formatter, StreamHandler
 from pathlib import Path
@@ -58,6 +59,7 @@ class HourlyDirectoryLogHandler(FileHandler):
     
     Attributes:
         log_dir: 日志基础目录路径
+        _lock: 线程锁，保护文件切换操作
     """
     
     def __init__(self, log_dir: Path, encoding: str = 'utf-8') -> None:
@@ -71,6 +73,9 @@ class HourlyDirectoryLogHandler(FileHandler):
         # 确保日志基础目录存在
         self.log_dir: Path = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 线程锁，保护文件切换操作
+        self._lock: threading.Lock = threading.Lock()
         
         # 计算初始日志文件路径
         initial_log_path: Path = self._get_log_path()
@@ -103,26 +108,47 @@ class HourlyDirectoryLogHandler(FileHandler):
         Note:
             该方法会自动处理文件切换，无需手动干预
         """
-        current_log_path: Path = self._get_log_path()
-        
-        # 检查是否需要切换日志文件
-        if self.baseFilename != str(current_log_path):
-            # 确保新目录存在
-            current_log_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # 关闭当前文件流
-            if self.stream:
-                self.stream.close()
-            
-            # 更新文件路径并重新打开
-            self.baseFilename = str(current_log_path)
-            self.mode = 'a'  # 追加模式
-            
-            # 强制重新打开文件
-            self._open()
-        
-        # 调用父类方法完成日志写入
-        super().emit(record)
+        try:
+            with self._lock:
+                current_log_path: Path = self._get_log_path()
+                
+                # 检查是否需要切换日志文件
+                if self.baseFilename != str(current_log_path):
+                    # 确保新目录存在
+                    current_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # 关闭当前文件流
+                    if self.stream:
+                        try:
+                            self.stream.flush()
+                            self.stream.close()
+                        except Exception:
+                            pass
+                        finally:
+                            self.stream = None
+                    
+                    # 更新文件路径
+                    self.baseFilename = str(current_log_path)
+                    self.mode = 'a'  # 追加模式
+                    
+                    # 重新打开文件
+                    self.stream = self._open()
+                
+                # 确保文件流有效
+                if self.stream is None or self.stream.closed:
+                    self.stream = self._open()
+                
+                # 调用父类方法完成日志写入
+                super().emit(record)
+                
+        except Exception as e:
+            # 如果日志写入失败，尝试输出到stderr，避免程序崩溃
+            try:
+                import traceback
+                sys.stderr.write(f"日志写入失败: {e}\n")
+                sys.stderr.write(traceback.format_exc())
+            except Exception:
+                pass
 
 
 # ============================================================================

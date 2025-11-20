@@ -10,7 +10,10 @@ Date: 2025-01-14
 """
 
 import argparse
+import atexit
 import logging
+import signal
+import sys
 import time
 from typing import Any
 import urllib3
@@ -39,6 +42,80 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 模块级日志记录器
 logger: logging.Logger = logging.getLogger(__name__)
+
+# ============================================================================
+# 全局退出标志和资源管理
+# ============================================================================
+
+# 全局退出信号标志
+_EXIT_FLAG: bool = False
+
+# 全局资源引用（用于清理）
+_GLOBAL_RESOURCES: dict[str, Any] = {
+    'api': None,
+    'db': None,
+    'oss_handler': None,
+    's3_handler': None,
+    'site_handler': None,
+}
+
+
+def signal_handler(signum: int, frame: Any) -> None:
+    """
+    信号处理函数
+    
+    处理 SIGINT (Ctrl+C) 和 SIGTERM 信号，设置退出标志。
+    
+    Args:
+        signum: 信号编号
+        frame: 当前堆栈帧
+    """
+    global _EXIT_FLAG
+    
+    signal_name: str = 'SIGINT' if signum == signal.SIGINT else 'SIGTERM'
+    logger.warning(f"\n收到退出信号 {signal_name}，正在优雅关闭...")
+    _EXIT_FLAG = True
+
+
+def cleanup_resources() -> None:
+    """
+    清理全局资源
+    
+    在程序退出时自动调用，确保所有资源正确释放。
+    """
+    logger.info("开始清理资源...")
+    
+    for name, resource in _GLOBAL_RESOURCES.items():
+        if resource is not None:
+            try:
+                if hasattr(resource, 'close'):
+                    resource.close()
+                    logger.debug(f"资源已释放: {name}")
+            except Exception as e:
+                logger.error(f"释放资源失败 ({name}): {e}")
+    
+    logger.info("资源清理完成")
+
+
+def register_resource(name: str, resource: Any) -> None:
+    """
+    注册需要清理的资源
+    
+    Args:
+        name: 资源名称
+        resource: 资源对象
+    """
+    _GLOBAL_RESOURCES[name] = resource
+
+
+def check_exit_flag() -> bool:
+    """
+    检查是否收到退出信号
+    
+    Returns:
+        bool: 如果收到退出信号返回 True
+    """
+    return _EXIT_FLAG
 
 
 # ============================================================================
@@ -73,15 +150,19 @@ def run_scraper(config: Any) -> None:
     
     # 加载状态
     state: dict[str, Any] = load_state()
-    current_page: int = state.get('last_synced_page', 0)
-    failed_synced_ids: list[int] = state.get('failed_synced_ids', [])
-    failed_site: dict[str, set] = state.get('failed_site', {})
+    current_page: int = state.get('api', {}).get('last_page', 0)
+    failed_synced_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
+    failed_site_raw: dict[str, list] = state.get('site', {}).get('failed_domain_ids', {})
+    # 将list转换为set，方便后续操作
+    failed_site: dict[str, set[str]] = {k: set(v) for k, v in failed_site_raw.items()}
+    failed_detail_ids: list[str] = state.get('api', {}).get('failed_detail_ids', [])
     
     # 从头开始时重置页码
     if current_page == 0:
         current_page = 1
         logger.info("从第1页开始抓取")
     else:
+        current_page -= 1
         logger.info(f"从第{current_page}页继续抓取")
     
     # 初始化处理器
@@ -90,14 +171,25 @@ def run_scraper(config: Any) -> None:
     oss_handler: OSSHandler = OSSHandler(config=config)
     site_handler: SiteHandler = SiteHandler(config=config)
     
+    # 注册资源用于清理
+    register_resource('api', api)
+    register_resource('db', db)
+    register_resource('oss_handler', oss_handler)
+    register_resource('site_handler', site_handler)
+    
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
         logger.info("使用缓存的API Token")
     
     try:
         while True:
+            # 检查退出标志
+            if check_exit_flag():
+                logger.warning("检测到退出信号，保存进度并退出...")
+                break
+            
             # 获取当前页视频列表
             response_data: dict[str, Any] | None = api.fetch_video_page(page_number=current_page)
             
@@ -114,7 +206,7 @@ def run_scraper(config: Any) -> None:
                 new_token: str | None = api.login()
                 
                 if new_token:
-                    state['api_token'] = new_token
+                    state['api']['token'] = new_token
                     save_state(data=state)
                     logger.info("重新登录成功，将重试请求当前页面")
                     continue  # 重试当前页
@@ -137,6 +229,11 @@ def run_scraper(config: Any) -> None:
                 
                 # 处理每个视频
                 for video in videos:
+                    # 检查退出标志
+                    if check_exit_flag():
+                        logger.warning("检测到退出信号，保存进度并退出...")
+                        break
+                    
                     douban_id: str = video.get('id', '')
                     title: str = video.get('title', '')
                     
@@ -156,6 +253,7 @@ def run_scraper(config: Any) -> None:
                         
                         if not details:
                             logger.warning(f"视频详情为空，跳过: {douban_id}")
+                            failed_detail_ids.append(douban_id)
                             continue
                         
                         # 更新视频数据
@@ -175,6 +273,7 @@ def run_scraper(config: Any) -> None:
                         })
                     else:
                         logger.warning(f"获取视频详情失败: {douban_id}")
+                        failed_detail_ids.append(douban_id)
                         continue
                     
                     # 插入数据库
@@ -196,60 +295,64 @@ def run_scraper(config: Any) -> None:
                         
                         if not result:
                             logger.error(f"OSS同步失败: {douban_id}")
-                            failed_synced_ids.append(int(douban_id))
+                            failed_synced_ids.append(douban_id)
                     except Exception as e:
                         logger.error(f"OSS同步异常: {douban_id}, 错误: {e}")
-                        failed_synced_ids.append(int(douban_id))
+                        failed_synced_ids.append(douban_id)
                     
                     # 避免请求过快
                     time.sleep(0.5)
                 
-                # # 同步到站点
-                # if processed_ids:
-                #     try:
-                #         logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
+                # 检查是否因退出信号中断循环
+                if check_exit_flag():
+                    break
+                
+                # 同步到站点
+                if processed_ids:
+                    try:
+                        logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
                         
-                #         # 从数据库查询视频数据
-                #         site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
-                #             douban_ids=list(processed_ids)
-                #         )
+                        # 从数据库查询视频数据
+                        site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
+                            douban_ids=list(processed_ids)
+                        )
                         
-                #         if not site_videos:
-                #             raise Exception("从数据库查询视频数据为空")
+                        if not site_videos:
+                            raise Exception("从数据库查询视频数据为空")
                         
-                #         # 同步到站点
-                #         sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
-                #             videos=site_videos
-                #         )
+                        # 同步到站点
+                        sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
+                            videos=site_videos
+                        )
                         
-                #         # 更新失败记录
-                #         if sync_failed_ids:
-                #             for domain, domain_failed_ids in sync_failed_ids.items():
-                #                 if domain in failed_site:
-                #                     failed_site[domain] |= domain_failed_ids
-                #                 else:
-                #                     failed_site[domain] = domain_failed_ids
+                        # 更新失败记录
+                        if sync_failed_ids:
+                            for domain, domain_failed_ids in sync_failed_ids.items():
+                                if domain in failed_site:
+                                    failed_site[domain] |= domain_failed_ids
+                                else:
+                                    failed_site[domain] = domain_failed_ids
                                     
-                #     except Exception as e:
-                #         logger.error(f"站点同步失败: {e}")
+                    except Exception as e:
+                        logger.error(f"站点同步失败: {e}")
                         
-                #         # 记录所有视频到所有域名的失败列表
-                #         domains_str: str = config.get('site', 'domains', fallback='')
-                #         domains: list[str] = [
-                #             d.strip() for d in domains_str.split(',') if d.strip()
-                #         ]
+                        # 记录所有视频到所有域名的失败列表
+                        domains_str: str = config.get('site', 'domains', fallback='')
+                        domains: list[str] = [
+                            d.strip() for d in domains_str.split(',') if d.strip()
+                        ]
                         
-                #         for domain in domains:
-                #             failed_site.setdefault(domain, set()).update(processed_ids)
-                #     finally:
-                #         site_handler.close()
-                # else:
-                #     logger.info("本页没有需要同步到站点的新视频")
+                        for domain in domains:
+                            failed_site.setdefault(domain, set()).update(processed_ids)
+                    finally:
+                        site_handler.close()
+                else:
+                    logger.info("本页没有需要同步到站点的新视频")
                 
                 # 保存状态
-                state['last_synced_page'] = current_page
-                state['failed_synced_ids'] = failed_synced_ids
-                state['failed_site'] = {k: list(v) for k, v in failed_site.items()}
+                state['api']['last_page'] = current_page
+                state['oss']['failed_synced_ids'] = failed_synced_ids
+                state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
                 save_state(data=state)
                 
                 # 处理下一页
@@ -261,11 +364,23 @@ def run_scraper(config: Any) -> None:
                 logger.error(f"API返回无法处理的错误 (Code: {response_code})，脚本终止")
                 break
                 
+    except KeyboardInterrupt:
+        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
+        # 保存当前状态
+        state['api']['last_page'] = current_page
+        state['api']['failed_detail_ids'] = failed_detail_ids
+        state['oss']['failed_synced_ids'] = failed_synced_ids
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
+        save_state(data=state)
+    except Exception as e:
+        logger.error(f"脚本执行异常: {e}", exc_info=True)
+        # 保存当前状态
+        state['api']['last_page'] = current_page
+        state['api']['failed_detail_ids'] = failed_detail_ids
+        state['oss']['failed_synced_ids'] = failed_synced_ids
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
+        save_state(data=state)
     finally:
-        # 清理资源
-        db.close()
-        api.close()
-        oss_handler.close()
         logger.info("=" * 80)
         logger.info("API数据抓取脚本执行结束")
         logger.info("=" * 80)
@@ -290,7 +405,7 @@ def run_oss_fixer(config: Any) -> None:
     logger.info("=" * 80)
     
     state: dict[str, Any] = load_state()
-    fix_ids: list[int] = state.get('failed_synced_ids', [])
+    fix_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
     
     if not fix_ids:
         logger.info("没有需要修复的OSS记录")
@@ -302,8 +417,12 @@ def run_oss_fixer(config: Any) -> None:
     api: ApiHandler = ApiHandler(config=config)
     oss_handler: OSSHandler = OSSHandler(config=config)
     
+    # 注册资源用于清理
+    register_resource('api', api)
+    register_resource('oss_handler', oss_handler)
+    
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
     
@@ -365,7 +484,7 @@ def run_oss_fixer(config: Any) -> None:
                     new_token: str | None = api.login()
                     
                     if new_token:
-                        state['api_token'] = new_token
+                        state['api']['token'] = new_token
                         save_state(data=state)
                         continue
                     else:
@@ -381,12 +500,18 @@ def run_oss_fixer(config: Any) -> None:
             time.sleep(1)
         
         # 更新状态
-        state['failed_synced_ids'] = failed_synced_ids
+        state['oss']['failed_synced_ids'] = failed_synced_ids
         save_state(data=state)
         
+    except KeyboardInterrupt:
+        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
+        state['oss']['failed_synced_ids'] = failed_synced_ids
+        save_state(data=state)
+    except Exception as e:
+        logger.error(f"脚本执行异常: {e}", exc_info=True)
+        state['oss']['failed_synced_ids'] = failed_synced_ids
+        save_state(data=state)
     finally:
-        api.close()
-        oss_handler.close()
         logger.info("=" * 80)
         logger.info("OSS数据修复脚本执行结束")
         logger.info("=" * 80)
@@ -411,7 +536,7 @@ def run_s3_fixer(config: Any) -> None:
     logger.info("=" * 80)
     
     state: dict[str, Any] = load_state()
-    fix_ids: list[int] = state.get('failed_synced_ids', [])
+    fix_ids: list[int] = state.get('s3', {}).get('failed_synced_ids', [])
     
     if not fix_ids:
         logger.info("没有需要修复的S3记录")
@@ -423,8 +548,12 @@ def run_s3_fixer(config: Any) -> None:
     api: ApiHandler = ApiHandler(config=config)
     s3_handler: S3Handler = S3Handler(config=config)
     
+    # 注册资源用于清理
+    register_resource('api', api)
+    register_resource('s3_handler', s3_handler)
+    
     # 设置Token
-    token: str | None = state.get('api_token')
+    token: str | None = state.get('api', {}).get('token', '')
     if token:
         api.set_token(token=token)
     
@@ -432,6 +561,11 @@ def run_s3_fixer(config: Any) -> None:
     
     try:
         for douban_id in fix_ids:
+            # 检查退出标志
+            if check_exit_flag():
+                logger.warning("检测到退出信号，保存进度并退出...")
+                break
+            
             logger.info(f"开始修复: {douban_id}")
             
             # 最多重试2次
@@ -486,7 +620,7 @@ def run_s3_fixer(config: Any) -> None:
                     new_token: str | None = api.login()
                     
                     if new_token:
-                        state['api_token'] = new_token
+                        state['api']['token'] = new_token
                         save_state(data=state)
                         continue
                     else:
@@ -502,12 +636,18 @@ def run_s3_fixer(config: Any) -> None:
             time.sleep(1)
         
         # 更新状态
-        state['failed_synced_ids'] = failed_synced_ids
+        state['s3']['failed_synced_ids'] = failed_synced_ids
         save_state(data=state)
         
+    except KeyboardInterrupt:
+        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
+        state['s3']['failed_synced_ids'] = failed_synced_ids
+        save_state(data=state)
+    except Exception as e:
+        logger.error(f"脚本执行异常: {e}", exc_info=True)
+        state['s3']['failed_synced_ids'] = failed_synced_ids
+        save_state(data=state)
     finally:
-        api.close()
-        s3_handler.close()
         logger.info("=" * 80)
         logger.info("S3数据修复脚本执行结束")
         logger.info("=" * 80)
@@ -534,7 +674,12 @@ def run_site_fixer(config: Any) -> None:
     state: dict[str, Any] = load_state()
     db: DatabaseHandler = DatabaseHandler(config=config)
     site_handler: SiteHandler = SiteHandler(config=config)
-    fix_sites: dict[str, list[str]] = state.get('failed_site', {})
+    
+    # 注册资源用于清理
+    register_resource('db', db)
+    register_resource('site_handler', site_handler)
+    
+    fix_sites: dict[str, list[str]] = state.get('site', {}).get('failed_domain_ids', {})
     failed_site: dict[str, set[str]] = {}
     
     if not fix_sites:
@@ -544,6 +689,11 @@ def run_site_fixer(config: Any) -> None:
     try:
         # 遍历每个域名的失败记录
         for domain, failed_ids in fix_sites.items():
+            # 检查退出标志
+            if check_exit_flag():
+                logger.warning("检测到退出信号，保存进度并退出...")
+                break
+            
             if not failed_ids:
                 continue
             
@@ -575,12 +725,18 @@ def run_site_fixer(config: Any) -> None:
                 failed_site[domain] = set(failed_ids)
         
         # 更新状态
-        state['failed_site'] = {k: list(v) for k, v in failed_site.items()}
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
         save_state(data=state)
         
+    except KeyboardInterrupt:
+        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
+        save_state(data=state)
+    except Exception as e:
+        logger.error(f"脚本执行异常: {e}", exc_info=True)
+        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
+        save_state(data=state)
     finally:
-        db.close()
-        site_handler.close()
         logger.info("=" * 80)
         logger.info("站点数据修复脚本执行结束")
         logger.info("=" * 80)
@@ -606,6 +762,9 @@ def run_site_clean(config: Any) -> None:
     
     site_handler: SiteHandler = SiteHandler(config=config)
     
+    # 注册资源用于清理
+    register_resource('site_handler', site_handler)
+    
     try:
         results: dict[str, bool] = site_handler.clean_to_site()
         
@@ -613,9 +772,12 @@ def run_site_clean(config: Any) -> None:
         for domain, success in results.items():
             status: str = "成功" if success else "失败"
             logger.info(f"{domain}: 清理{status}")
-            
+    
+    except KeyboardInterrupt:
+        logger.warning("用户中断操作 (Ctrl+C)")
+    except Exception as e:
+        logger.error(f"脚本执行异常: {e}", exc_info=True)
     finally:
-        site_handler.close()
         logger.info("=" * 80)
         logger.info("站点数据清理脚本执行结束")
         logger.info("=" * 80)
@@ -643,43 +805,59 @@ def main() -> None:
         $ python main.py oss_fix
         $ python main.py site_clean
     """
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="视频数据同步系统 - Python 3.11+ 企业级项目",
-        epilog="Author: Qasim | Version: 2.0"
-    )
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, signal_handler)
     
-    subparsers = parser.add_subparsers(
-        dest='command',
-        required=True,
-        help='选择要执行的命令'
-    )
+    # 注册退出清理函数
+    atexit.register(cleanup_resources)
     
-    # 创建子命令
-    subparsers.add_parser('scraper', help='抓取API元数据并存入数据库')
-    subparsers.add_parser('oss_fix', help='修复OSS上传失败的数据')
-    subparsers.add_parser('s3_fix', help='修复S3上传失败的数据')
-    subparsers.add_parser('site_fix', help='修复站点同步失败的数据')
-    subparsers.add_parser('site_clean', help='清理站点数据')
+    try:
+        parser: argparse.ArgumentParser = argparse.ArgumentParser(
+            description="视频数据同步系统 - Python 3.11+ 企业级项目",
+            epilog="Author: Qasim | Version: 2.0"
+        )
+        
+        subparsers = parser.add_subparsers(
+            dest='command',
+            required=True,
+            help='选择要执行的命令'
+        )
+        
+        # 创建子命令
+        subparsers.add_parser('scraper', help='抓取API元数据并存入数据库')
+        subparsers.add_parser('oss_fix', help='修复OSS上传失败的数据')
+        subparsers.add_parser('s3_fix', help='修复S3上传失败的数据')
+        subparsers.add_parser('site_fix', help='修复站点同步失败的数据')
+        subparsers.add_parser('site_clean', help='清理站点数据')
+        
+        # 解析参数
+        args: argparse.Namespace = parser.parse_args()
+        
+        # 加载配置
+        config: Any = load_config()
+        
+        # 路由到相应函数
+        if args.command == 'scraper':
+            run_scraper(config=config)
+        elif args.command == 'oss_fix':
+            run_oss_fixer(config=config)
+        elif args.command == 's3_fix':
+            run_s3_fixer(config=config)
+        elif args.command == 'site_fix':
+            run_site_fixer(config=config)
+        elif args.command == 'site_clean':
+            run_site_clean(config=config)
+        else:
+            parser.print_help()
     
-    # 解析参数
-    args: argparse.Namespace = parser.parse_args()
-    
-    # 加载配置
-    config: Any = load_config()
-    
-    # 路由到相应函数
-    if args.command == 'scraper':
-        run_scraper(config=config)
-    elif args.command == 'oss_fix':
-        run_oss_fixer(config=config)
-    elif args.command == 's3_fix':
-        run_s3_fixer(config=config)
-    elif args.command == 'site_fix':
-        run_site_fixer(config=config)
-    elif args.command == 'site_clean':
-        run_site_clean(config=config)
-    else:
-        parser.print_help()
+    except KeyboardInterrupt:
+        logger.warning("\n程序被用户中断")
+        sys.exit(0)
+    except Exception as e:
+        logger.critical(f"程序执行失败: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

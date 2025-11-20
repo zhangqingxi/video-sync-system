@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 import requests
+import json
 from requests.adapters import HTTPAdapter
 from requests.sessions import Session
 from urllib3.util.retry import Retry
@@ -197,25 +198,30 @@ class SiteHandler:
                 
                 response: requests.Response = self.session.post(
                     url=sync_url,
-                    json={"videos": videos},
+                    json={"videos_data": json.dumps(videos, default=str)},
                     timeout=self.request_timeout,
                     verify=False  # 注意：生产环境建议改为True并配置CA证书
                 )
                 
                 response.raise_for_status()
-                result: dict[str, Any] = response.json()
                 
-                # 检查API响应
-                if result.get('code') != 0:
-                    error_msg: str = result.get('message', '未知错误')
-                    raise ValueError(f"同步失败: {error_msg}")
+                # API直接返回失败的视频ID列表
+                failed_ids: list = response.json()
                 
-                logger.info(f"{target_domain} 同步成功，处理 {len(videos)} 条数据")
-                failed[target_domain] = set()  # 成功则失败集合为空
+                if failed_ids:
+                    logger.warning(f"{target_domain} 同步部分失败，失败数量: {len(failed_ids)}")
+                    # 将列表转换为字符串集合
+                    failed[target_domain] = set(str(vid) for vid in failed_ids)
+                else:
+                    logger.info(f"{target_domain} 同步成功，处理 {len(videos)} 条数据")
+                    failed[target_domain] = set()  # 成功则失败集合为空
                 
+            except requests.exceptions.RequestException as e:
+                logger.error(f"{target_domain} 同步请求失败: {str(e)}")
+                failed[target_domain] = video_id_set.copy()  # 请求失败记录所有ID
             except Exception as e:
-                logger.error(f"{target_domain} 同步失败: {str(e)}")
-                failed[target_domain] = video_id_set.copy()  # 失败则记录所有ID
+                logger.error(f"{target_domain} 同步异常: {str(e)}")
+                failed[target_domain] = video_id_set.copy()  # 其他异常记录所有ID
         
         return failed
     

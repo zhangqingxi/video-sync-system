@@ -128,11 +128,10 @@ def load_state() -> dict[str, Any]:
         
     State Structure:
         {
-            "last_synced_page": int,        # 最后同步的页码
-            "api_token": str | None,        # API访问令牌
-            "failed_synced_ids": list[int], # 同步失败的视频ID列表
-            "failed_site": dict[str, set],  # 站点同步失败记录
-            "filed_detail_ids": list[int]   # 详情获取失败的ID列表
+            "api": {"last_page": int, "token": str | None},        # API状态维护
+            "s3": {"last_douban_id": int, "last_checked_id": int, "failed_checked_ids": list[int], "failed_synced_ids": list[int]}, # S3状态维护
+            "oss": {"last_douban_id": int, "last_checked_id": int, "failed_checked_ids": list[int], "failed_synced_ids": list[int]},  # OSS状态维护
+            "site": {"failed_domain_ids": list[str]},   # 站点状态维护
         }
         
     Raises:
@@ -141,7 +140,7 @@ def load_state() -> dict[str, Any]:
         
     Example:
         >>> state = load_state()
-        >>> current_page = state.get('last_synced_page', 0)
+        >>> current_page = state.get('api', {}).get('last_page', 0)
     """
     state_file_path: Path = _get_state_file_path()
     
@@ -149,11 +148,11 @@ def load_state() -> dict[str, Any]:
     if not state_file_path.exists():
         logger.warning(f"状态文件不存在，创建默认状态: {state_file_path}")
         initial_state: dict[str, Any] = {
-            "last_synced_page": 0,
-            "api_token": None,
-            "failed_synced_ids": [],
-            "failed_site": {},
-            "filed_detail_ids": []
+            "api": {"last_page": 0, "token": None},
+            "s3": {"last_douban_id": 0, "last_checked_id": 0, "failed_checked_ids": [], "failed_synced_ids": []},
+            "oss": {"last_douban_id": 0, "last_checked_id": 0, "failed_checked_ids": [], "failed_synced_ids": []},
+            "site": {"failed_domain_ids": []},
+            "local": {"last_douban_id": 0, "last_checked_id": 0, "failed_checked_ids": [], "failed_synced_ids": []},
         }
         save_state(data=initial_state)
         return initial_state
@@ -186,7 +185,7 @@ def save_state(data: dict[str, Any]) -> None:
         
     Example:
         >>> state = load_state()
-        >>> state['last_synced_page'] = 10
+        >>> state['api']['last_page'] = 10
         >>> save_state(data=state)
     
     Note:

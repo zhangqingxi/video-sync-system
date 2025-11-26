@@ -139,7 +139,7 @@ class S3OriginFixCommand(BaseCommand):
         """
         try:
             # 1. 从API获取最新详情
-            detail_data: dict[str, Any] = api_service.fetch_video_detail(str(video_id))
+            detail_data: dict[str, Any] | None = api_service.fetch_video_detail(str(video_id))
             
             if not detail_data:
                 self.logger.warning(f"无法获取视频详情，跳过: ID={video_id}")

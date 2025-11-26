@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, TypeVar
 from src.core.exceptions import ConfigurationError
 
+
 T = TypeVar('T')
 
 @dataclass
@@ -25,7 +26,7 @@ class ServiceDescriptor:
 class DIContainer:
     """依赖注入容器"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._services: dict[type, ServiceDescriptor] = {}
     
     def register(
@@ -42,12 +43,12 @@ class DIContainer:
             factory: 服务工厂函数
             singleton: 是否为单例
         """
-        self._services[interface]: ServiceDescriptor = ServiceDescriptor(
+        self._services[interface] = ServiceDescriptor(
             factory=factory,
             singleton=singleton
         )
     
-    def resolve(self, interface: type[T]) -> T:
+    def resolve(self, interface: type[T]) -> Any:
         """
         解析服务
         

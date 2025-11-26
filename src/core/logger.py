@@ -10,6 +10,7 @@ Python: 3.11+
 
 import logging
 import sys
+from typing import Any
 from datetime import datetime
 from pathlib import Path
 from src.core.protocols import LoggerProvider
@@ -18,7 +19,7 @@ from src.core.protocols import LoggerProvider
 class PathFilter(logging.Filter):
     """路径过滤器 - 将绝对路径转换为相对模块路径"""
     
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path) -> None:
         super().__init__()
         self.project_root = project_root
     
@@ -47,36 +48,43 @@ class PathFilter(logging.Filter):
         return True
 
 
-class CommandLogger:
-    """命令专用日志器
+class CommandLogger(LoggerProvider):
+    """命令日志器 - 适配 logging.Logger 到 LoggerProvider 协议"""
     
-    使用 stack level 参数确保日志记录显示调用者的位置，而不是 wrapper 的位置
-    """
+    def __init__(self, logger: logging.Logger) -> None:
+        """
+        初始化命令日志器
+        
+        Args:
+            logger: 标准 logging.Logger 实例
+        """
+        self._logger = logger
     
-    def __init__(self, logger: logging.Logger):
-        self._logger: logging.Logger = logger
+    def debug(self, message: str, **kwargs: Any) -> None:
+        """记录DEBUG级别日志"""
+        self._logger.debug(message, **kwargs)
     
-    def debug(self, message: str, **kwargs) -> None:
-        # stacklevel=2 表示跳过当前方法，显示调用 logger.debug() 的位置
-        self._logger.debug(message, stacklevel=2, **kwargs)
+    def info(self, message: str, **kwargs: Any) -> None:
+        """记录INFO级别日志"""
+        self._logger.info(message, **kwargs)
     
-    def info(self, message: str, **kwargs) -> None:
-        self._logger.info(message, stacklevel=2, **kwargs)
+    def warning(self, message: str, **kwargs: Any) -> None:
+        """记录WARNING级别日志"""
+        self._logger.warning(message, **kwargs)
     
-    def warning(self, message: str, **kwargs) -> None:
-        self._logger.warning(message, stacklevel=2, **kwargs)
+    def error(self, message: str, **kwargs: Any) -> None:
+        """记录ERROR级别日志"""
+        self._logger.error(message, **kwargs)
     
-    def error(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        self._logger.error(message, exc_info=exc_info, stacklevel=2, **kwargs)
-    
-    def critical(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        self._logger.critical(message, exc_info=exc_info, stacklevel=2, **kwargs)
+    def critical(self, message: str, **kwargs: Any) -> None:
+        """记录CRITICAL级别日志"""
+        self._logger.critical(message, **kwargs)
 
 
 class LoggerManager:
     """日志管理器"""
     
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path) -> None:
         """
         初始化日志管理器
         
@@ -85,12 +93,12 @@ class LoggerManager:
         """
         self.base_dir: Path = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self._loggers: dict[str, logging.Logger] = {}
+        self._loggers: dict[str, LoggerProvider] = {}
         
         # 获取项目根目录
         self.project_root = Path(__file__).parent.parent.parent
     
-    def get_logger(self, command_name: str, module_name: str = '__main__') -> 'CommandLogger':
+    def get_logger(self, command_name: str, module_name: str = '__main__') -> 'LoggerProvider':
         """
         获取命令专用日志器
         
@@ -99,7 +107,7 @@ class LoggerManager:
             module_name: 模块名称
             
         Returns:
-            CommandLogger: 命令专用日志器
+            LoggerProvider: 命令日志提供者
         """
         key: str = f"{command_name}:{module_name}"
         
@@ -140,6 +148,7 @@ class LoggerManager:
             console_handler.setFormatter(console_formatter)
             logger.addHandler(console_handler)
             
-            self._loggers[key] = logger
+            # 包装成 CommandLogger 以符合 LoggerProvider 协议
+            self._loggers[key] = CommandLogger(logger)
         
-        return CommandLogger(self._loggers[key])
+        return self._loggers[key]

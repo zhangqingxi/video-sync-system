@@ -8,7 +8,7 @@ Version: 3.0
 Python: 3.11+
 """
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Any
 
 
 @runtime_checkable
@@ -116,42 +116,105 @@ class StorageProvider(Protocol):
 class VideoRepository(Protocol):
     """视频数据仓库协议"""
     
-    def get_by_id(self, video_id: int) -> dict | None:
-        """根据ID获取视频"""
+    def get_by_id(self, video_id: int) -> dict[str, Any] | None:
+        """
+        根据ID获取视频
+        
+        Args:
+            video_id: 视频ID
+            
+        Returns:
+            dict[str, Any] | None: 视频数据，不存在则返回None
+        """
         ...
     
-    def get_videos_after_id(self, last_id: int, limit: int = 100) -> list[dict]:
-        """获取ID之后的视频列表"""
+    def get_videos_after_id(self, last_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        """
+        获取ID之后的视频列表
+        
+        Args:
+            last_id: 上一个视频ID
+            limit: 限制数量
+            
+        Returns:
+            list[dict[str, Any]]: 视频列表
+        """
         ...
     
-    def insert(self, video_data: dict) -> bool:
-        """插入视频数据"""
+    def insert(self, video_data: dict[str, Any]) -> bool:
+        """
+        插入视频数据
+        
+        Args:
+            video_data: 视频数据
+            
+        Returns:
+            bool: 是否成功
+        """
         ...
     
     def exists(self, video_id: int) -> bool:
-        """检查视频是否存在"""
+        """
+        检查视频是否存在
+        
+        Args:
+            video_id: 视频ID
+            
+        Returns:
+            bool: 是否存在
+        """
         ...
 
 @runtime_checkable
 class LoggerProvider(Protocol):
     """日志提供者协议"""
     
-    def debug(self, message: str, **kwargs) -> None:
-        """记录DEBUG级别日志"""
+    def debug(self, message: str, **kwargs: Any) -> None:
+        """
+        记录DEBUG级别日志
+        
+        Args:
+            message: 日志消息
+            **kwargs: 其他参数，如 exc_info=True 用于记录异常信息
+        """
         ...
     
-    def info(self, message: str, **kwargs) -> None:
-        """记录INFO级别日志"""
+    def info(self, message: str, **kwargs: Any) -> None:
+        """
+        记录INFO级别日志
+        
+        Args:
+            message: 日志消息
+            **kwargs: 其他参数，如 exc_info=True 用于记录异常信息
+        """
         ...
     
-    def warning(self, message: str, **kwargs) -> None:
-        """记录WARNING级别日志"""
+    def warning(self, message: str, **kwargs: Any) -> None:
+        """
+        记录WARNING级别日志
+        
+        Args:
+            message: 日志消息
+            **kwargs: 其他参数，如 exc_info=True 用于记录异常信息
+        """
         ...
     
-    def error(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        """记录ERROR级别日志"""
+    def error(self, message: str, **kwargs: Any) -> None:
+        """
+        记录ERROR级别日志
+        
+        Args:
+            message: 日志消息
+            **kwargs: 其他参数，如 exc_info=True 用于记录异常信息
+        """
         ...
     
-    def critical(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        """记录CRITICAL级别日志"""
+    def critical(self, message: str, **kwargs: Any) -> None:
+        """
+        记录CRITICAL级别日志
+        
+        Args:
+            message: 日志消息
+            **kwargs: 其他参数，如 exc_info=True 用于记录异常信息
+        """
         ...

@@ -7,8 +7,10 @@ Python: 3.11+
 """
 
 import re
+from typing import cast
 import alibabacloud_oss_v2 as oss
 from io import BytesIO
+from alibabacloud_oss_v2 import StreamBody
 from src.core.config import StorageConfig, ConstantsConfig
 from src.core.exceptions import StorageError
 from src.core.protocols import LoggerProvider
@@ -23,7 +25,7 @@ class OSSAdapter(BaseStorageAdapter):
         config: StorageConfig,
         constants: ConstantsConfig,
         logger: LoggerProvider
-    ):
+    ) -> None:
         """
         初始化OSS适配器
         
@@ -43,8 +45,8 @@ class OSSAdapter(BaseStorageAdapter):
             
             # 配置客户端
             cfg: oss.config.Config = oss.config.load_default()
-            cfg.credentials_provider: oss.credentials.CredentialsProvider = credentials_provider
-            cfg.region: str = config.region
+            cfg.credentials_provider = credentials_provider
+            cfg.region = config.region
             
             # 创建客户端
             self._client: oss.Client = oss.Client(cfg)
@@ -137,12 +139,13 @@ class OSSAdapter(BaseStorageAdapter):
             )
             
             result: oss.GetObjectResult = self._client.get_object(request)
-            
-            # 读取内容
-            content: bytes = b''
-            for chunk in result.body:
-                content += chunk
-            
+
+            if result.body is None:
+                raise ValueError("获取的对象内容为空")
+
+            # 一次性读取所有内容
+            content: bytes = result.body.read()
+
             self.logger.info(f"OSS下载成功: {key}, Size={len(content)}")
             return content
         except Exception as e:

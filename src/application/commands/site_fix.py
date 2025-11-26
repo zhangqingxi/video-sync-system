@@ -14,6 +14,7 @@ from src.core.state import StateManager
 from src.infrastructure.database import VideoRepositoryImpl
 from src.domain.services import SiteService
 
+
 class SiteFixCommand(BaseCommand):
     """站点同步修复命令"""
     

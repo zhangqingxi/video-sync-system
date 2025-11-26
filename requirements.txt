@@ -21,6 +21,9 @@ pycryptodome==3.23.0
 # 类型检查（开发环境）
 mypy==1.18.2
 types-requests==2.32.4.20250913
+types-PyYAML==6.0.12.20250915
+types-PyMySQL==1.1.0.20250916
+types-boto3==1.41.4
 
 # 代码格式化（开发环境）
 black==25.11.0
@@ -30,3 +33,4 @@ isort==7.0.0
 # 测试（开发环境）
 pytest==9.0.1
 pytest-cov==7.0.0
+

@@ -131,7 +131,7 @@ class S3CoverFixCommand(BaseCommand):
         """
         try:
             # 从数据库获取视频信息
-            video_data: dict[str, Any] = video_repo.get_by_id(video_id=video_id)
+            video_data: dict[str, Any] | None = video_repo.get_by_id(video_id=video_id)
             if not video_data:
                 self.logger.warning(f"数据库中未找到视频: ID={video_id}")
                 return False

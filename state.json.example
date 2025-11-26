@@ -1,27 +1,19 @@
 {
-    "api": {
-        "last_page": 0,
-        "token": ""
-    },
-    "s3": {
-        "last_douban_id": 0,
-        "last_checked_id": 0,
-        "failed_checked_ids": [],
-        "failed_synced_ids": []
-    },   
-    "oss":{
-        "last_douban_id": 0,
-        "last_checked_id": 0,
-        "failed_checked_ids": [],
-        "failed_synced_ids": []
-    },
-    "site": {
-        "failed_domain_ids": []
-    },
-    "local":{
-        "last_douban_id": 0,
-        "last_checked_id": 0,
-        "failed_checked_ids": [],
-        "failed_synced_ids": []
-    }
+  "last_page": 0,
+  "api_token": "",
+  "s3_failed_synced_origin_m3u8_ids": [],
+  "s3_failed_synced_index_m3u8_ids": [],
+  "s3_failed_synced_cover_ids": [],
+  "oss_failed_synced_origin_m3u8_ids": [],
+  "oss_failed_synced_index_m3u8_ids": [],
+  "oss_failed_synced_cover_ids": [],
+  "site_failed_synced_ids": {},
+  "last_checked_s3_origin": 0,
+  "last_checked_s3_index": 0,
+  "last_checked_oss_origin": 0,
+  "last_checked_oss_index": 0,
+  "last_checked_s3_cover": 0,
+  "last_checked_oss_cover": 0,
+  "last_checked_video_tag": 0,
+  "failed_video_tag_ids": []
 }

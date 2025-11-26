@@ -18,7 +18,7 @@ from src.core.protocols import LoggerProvider
 class DatabasePool:
     """数据库连接池"""
     
-    def __init__(self, config: DatabaseConfig, logger: LoggerProvider):
+    def __init__(self, config: DatabaseConfig, logger: LoggerProvider) -> None:
         """
         初始化数据库连接池
         
@@ -50,7 +50,7 @@ class DatabasePool:
         except mysql.connector.Error as e:
             raise DatabaseError(f"Failed to initialize database pool: {e}")
     
-    def get_connection(self):
+    def get_connection(self) -> Any:
         """
         从连接池获取连接
         
@@ -60,6 +60,9 @@ class DatabasePool:
         Raises:
             DatabaseError: 获取连接失败时抛出
         """
+        if not self._pool:
+            raise DatabaseError("Connection pool not initialized")
+            
         try:
             return self._pool.get_connection()
         except mysql.connector.Error as e:

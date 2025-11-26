@@ -11,11 +11,14 @@ Python: 3.11+
 """
 
 import sys
+import urllib3
 import subprocess
 from pathlib import Path
 
+# 禁用SSL警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def print_banner():
+def print_banner()-> None:
     """打印横幅"""
     print("=" * 60)
     print("       视频同步系统 v3.0 - 快速启动")
@@ -23,7 +26,7 @@ def print_banner():
     print()
 
 
-def print_commands():
+def print_commands()-> None:
     """打印可用命令"""
     commands: dict[str, list[tuple[str, str]]] = {
         "检查命令": [
@@ -49,8 +52,12 @@ def print_commands():
             ("site_fix", "同步失败的视频数据到所有配置的站点"),
             ("site_clean", "清理站点数据"),
         ],
+        "标签命令": [
+            ("video_tag_check", "检测视频标签数据"),
+            ("video_tag_fix", "修复缺失的视频标签数据"),
+        ]
     }
-    
+
     num: int = 1
     for category, cmds in commands.items():
         print(f"\n【{category}】")
@@ -59,7 +66,7 @@ def print_commands():
             num += 1
 
 
-def main():
+def main() -> int:
     """主函数"""
     print_banner()
     
@@ -96,6 +103,8 @@ def main():
         "13": "oss_cover_fix",
         "14": "site_fix",
         "15": "site_clean",
+        "16": "video_tag_check",
+        "17": "video_tag_fix",
     }
     
     # 获取命令

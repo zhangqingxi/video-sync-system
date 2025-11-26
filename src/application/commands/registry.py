@@ -12,10 +12,11 @@ from typing import Type
 from src.application.commands.base import BaseCommand, CommandContext
 from src.core.exceptions import ValidationError
 
+
 class CommandRegistry:
     """命令注册器"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._commands: dict[str, Type[BaseCommand]] = {}
     
     def register(self, command_class: Type[BaseCommand]) -> None:

@@ -13,6 +13,7 @@ from src.core.protocols import LoggerProvider, StorageProvider
 from src.infrastructure.storage.s3 import S3Adapter
 from src.infrastructure.storage.oss import OSSAdapter
 
+
 class StorageFactory:
     """存储工厂"""
     

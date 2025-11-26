@@ -14,6 +14,7 @@ from src.infrastructure.database import VideoRepositoryImpl
 from src.infrastructure.storage import StorageFactory
 from src.core.protocols import StorageProvider
 
+
 class S3CoverCheckCommand(BaseCommand):
     """S3 Cover资源检查命令"""
     

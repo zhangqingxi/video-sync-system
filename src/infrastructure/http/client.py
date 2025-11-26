@@ -21,7 +21,7 @@ from src.core.state import StateManager
 class HTTPClient:
     """HTTP客户端（带重试）"""
     
-    def __init__(self, api_config: APIConfig, state_manager: StateManager, logger: LoggerProvider):
+    def __init__(self, api_config: APIConfig, state_manager: StateManager, logger: LoggerProvider) -> None:
         """
         初始化HTTP客户端
         
@@ -186,7 +186,7 @@ class HTTPClient:
             self.logger.error(f"认证POST请求失败 ({url}): {e}")
             raise APIError(f"Authenticated POST request failed: {e}")
     
-    def close(self):
+    def close(self) -> None:
         """关闭Session"""
         if self._session:
             self._session.close()

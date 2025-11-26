@@ -192,7 +192,7 @@ class OSSIndexFixCommand(BaseCommand):
                 )
                 
                 # 下载 TS
-                if not oss_adapter.upload_from_url(ts_url, ts_key):
+                if not oss_adapter.upload_from_url(resource_url=ts_url, resource_type='index', resource_key=ts_key):
                     self.logger.error(f"TS上传失败: {ts_url}")
                     return False
                 

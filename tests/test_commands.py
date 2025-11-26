@@ -21,7 +21,7 @@ from src.application.commands import CommandContext, CommandRegistry, S3OriginCh
 class TestCommandRegistry(unittest.TestCase):
     """命令注册器测试"""
     
-    def test_register_command(self):
+    def test_register_command(self) -> None:
         """测试命令注册"""
         registry = CommandRegistry()
         registry.register(S3OriginCheckCommand)
@@ -29,7 +29,7 @@ class TestCommandRegistry(unittest.TestCase):
         # 验证命令已注册
         self.assertTrue(registry.has_command('s3_origin_check'))
     
-    def test_list_commands(self):
+    def test_list_commands(self) -> None:
         """测试列出命令"""
         registry = CommandRegistry()
         registry.register(S3OriginCheckCommand)
@@ -37,7 +37,7 @@ class TestCommandRegistry(unittest.TestCase):
         commands = registry.list_commands()
         self.assertIn('s3_origin_check', commands)
     
-    def test_get_command(self):
+    def test_get_command(self) -> None:
         """测试获取命令实例"""
         registry = CommandRegistry()
         registry.register(S3OriginCheckCommand)
@@ -62,7 +62,7 @@ class TestCommandRegistry(unittest.TestCase):
 class TestS3OriginCheckCommand(unittest.TestCase):
     """S3 Origin检查命令测试"""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """测试前准备"""
         # 创建mock依赖
         self.container = Mock(spec=DIContainer)
@@ -84,12 +84,12 @@ class TestS3OriginCheckCommand(unittest.TestCase):
             logger_manager=self.logger_manager
         )
     
-    def test_command_name(self):
+    def test_command_name(self) -> None:
         """测试命令名称"""
         command = S3OriginCheckCommand(self.context)
         self.assertEqual(command.name, 's3_origin_check')
     
-    def test_command_description(self):
+    def test_command_description(self) -> None:
         """测试命令描述"""
         command = S3OriginCheckCommand(self.context)
         self.assertIsNotNone(command.description)

@@ -253,6 +253,13 @@ class ConfigManager:
         constants_config: dict[str, Any] = self._raw_config.get('constants', {})
         return ConstantsConfig(**constants_config)
     
+    @property
+    def site_domains(self) -> list[str]:
+        """获取站点域名列表"""
+        site_config: dict[str, Any] = self._raw_config.get('site', {})
+        domains: Any = site_config.get('domains', [])
+        return list(domains) if domains else []
+    
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
         获取配置项

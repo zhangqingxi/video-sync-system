@@ -1,864 +1,183 @@
 """
-项目统一主入口
+主入口文件
 
-通过命令行参数分发任务，支持数据抓取、修复、清理等多种操作。
+提供命令行界面，执行各种视频同步任务。
 
 Author: Qasim
-Version: 2.0
+Version: 3.0
 Python: 3.11+
-Date: 2025-01-14
 """
 
-import argparse
-import atexit
-import logging
-import signal
 import sys
-import time
-from typing import Any
 import urllib3
+from pathlib import Path
+from src.core.config import ConfigManager
+from src.core.container import DIContainer
+from src.core.logger import LoggerManager
+from src.application.commands.base import CommandContext, BaseCommand
+from src.application.commands.registry import CommandRegistry
+from src.core.exceptions import ConfigurationError, ValidationError
 
-from core import (
-    ApiHandler,
-    DatabaseHandler,
-    OSSHandler,
-    S3Handler,
-    SiteHandler,
-    load_config,
-    load_state,
-    save_state,
-    setup_logger,
-)
-
-# ============================================================================
-# 全局配置
-# ============================================================================
-
-# 初始化日志系统（必须在最开始执行）
-setup_logger()
-
-# 禁用SSL警告（开发环境）
+# 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 模块级日志记录器
-logger: logging.Logger = logging.getLogger(__name__)
-
-# ============================================================================
-# 全局退出标志和资源管理
-# ============================================================================
-
-# 全局退出信号标志
-_EXIT_FLAG: bool = False
-
-# 全局资源引用（用于清理）
-_GLOBAL_RESOURCES: dict[str, Any] = {
-    'api': None,
-    'db': None,
-    'oss_handler': None,
-    's3_handler': None,
-    'site_handler': None,
-}
-
-
-def signal_handler(signum: int, frame: Any) -> None:
+def setup_environment() -> tuple[ConfigManager, DIContainer, LoggerManager]:
     """
-    信号处理函数
-    
-    处理 SIGINT (Ctrl+C) 和 SIGTERM 信号，设置退出标志。
-    
-    Args:
-        signum: 信号编号
-        frame: 当前堆栈帧
-    """
-    global _EXIT_FLAG
-    
-    signal_name: str = 'SIGINT' if signum == signal.SIGINT else 'SIGTERM'
-    logger.warning(f"\n收到退出信号 {signal_name}，正在优雅关闭...")
-    _EXIT_FLAG = True
+    设置运行环境
 
-
-def cleanup_resources() -> None:
-    """
-    清理全局资源
-    
-    在程序退出时自动调用，确保所有资源正确释放。
-    """
-    logger.info("开始清理资源...")
-    
-    for name, resource in _GLOBAL_RESOURCES.items():
-        if resource is not None:
-            try:
-                if hasattr(resource, 'close'):
-                    resource.close()
-                    logger.debug(f"资源已释放: {name}")
-            except Exception as e:
-                logger.error(f"释放资源失败 ({name}): {e}")
-    
-    logger.info("资源清理完成")
-
-
-def register_resource(name: str, resource: Any) -> None:
-    """
-    注册需要清理的资源
-    
-    Args:
-        name: 资源名称
-        resource: 资源对象
-    """
-    _GLOBAL_RESOURCES[name] = resource
-
-
-def check_exit_flag() -> bool:
-    """
-    检查是否收到退出信号
-    
     Returns:
-        bool: 如果收到退出信号返回 True
+        tuple: (config, container, logger_manager)
     """
-    return _EXIT_FLAG
-
-
-# ============================================================================
-# 核心业务函数
-# ============================================================================
-
-def run_scraper(config: Any) -> None:
-    """
-    执行API数据抓取任务
+    # 加载配置
+    config_file: Path = Path("config/config.yaml")
+    if not config_file.exists():
+        raise ConfigurationError("配置文件不存在: config/config.yaml")
     
-    从第三方API批量抓取视频元数据，保存到数据库，上传到云存储，并同步到站点。
+    config: ConfigManager = ConfigManager(config_path=config_file)
+    
+    # 创建日志管理器
+    log_dir: Path = Path("logs")
+    logger_manager: LoggerManager = LoggerManager(base_dir=log_dir)
+    
+    # 创建依赖注入容器
+    container: DIContainer = DIContainer()
+    
+    # 注册核心服务
+    from src.core.state import StateManager
+    from src.infrastructure.database import DatabasePool, VideoRepositoryImpl
+    
+    state_file: Path = Path("state.json")
+    container.register(
+        interface=StateManager,
+        factory=lambda: StateManager(state_file=state_file),
+        singleton=True
+    )
+    
+    container.register(
+        interface=DatabasePool,
+        factory=lambda: DatabasePool(config=config.database, logger=logger_manager.get_logger(command_name="system")),
+        singleton=True
+    )
+    
+    container.register(
+        interface=VideoRepositoryImpl,
+        factory=lambda: VideoRepositoryImpl(
+            db_pool=container.resolve(interface=DatabasePool),
+            config=config.database,
+            logger=logger_manager.get_logger(command_name="system")
+        ),
+        singleton=False
+    )
+    
+    # 注册存储适配器
+    from src.infrastructure.storage import OSSAdapter
+    container.register(
+        interface=OSSAdapter,
+        factory=lambda: OSSAdapter(
+            config=config.oss_storage,
+            constants=config.constants,
+            logger=logger_manager.get_logger(command_name="system")
+        ),
+        singleton=False
+    )
+    
+    return config, container, logger_manager
+
+
+def register_commands(registry: CommandRegistry) -> None:
+    """
+    注册所有命令
     
     Args:
-        config: 项目配置对象
-        
-    Business Logic:
-        1. 读取上次同步的页码
-        2. 循环获取API数据并存入数据库
-        3. 上传视频文件到OSS/S3
-        4. 同步数据到目标站点
-        5. 处理Token过期的自动重新登录
-        6. 保存同步进度状态
-        
-    Example:
-        >>> from core import load_config
-        >>> config = load_config()
-        >>> run_scraper(config=config)
+        registry: 命令注册器
     """
-    logger.info("=" * 80)
-    logger.info("启动API数据抓取脚本")
-    logger.info("=" * 80)
+    # 导入所有命令
+    from src.application.commands.scraper import ScraperCommand
+    from src.application.commands.oss_origin_check import OSSOriginCheckCommand
+    from src.application.commands.oss_index_check import OSSIndexCheckCommand
+    from src.application.commands.oss_cover_check import OSSCoverCheckCommand
+    from src.application.commands.s3_origin_check import S3OriginCheckCommand
+    from src.application.commands.s3_index_check import S3IndexCheckCommand
+    from src.application.commands.s3_cover_check import S3CoverCheckCommand
+    from src.application.commands.oss_origin_fix import OSSOriginFixCommand
+    from src.application.commands.oss_index_fix import OSSIndexFixCommand
+    from src.application.commands.oss_cover_fix import OSSCoverFixCommand
+    from src.application.commands.s3_origin_fix import S3OriginFixCommand
+    from src.application.commands.s3_index_fix import S3IndexFixCommand
+    from src.application.commands.s3_cover_fix import S3CoverFixCommand
+    from src.application.commands.site_fix import SiteFixCommand
+    from src.application.commands.site_clean import SiteCleanCommand
+    from src.application.commands.video_tag_check import VideoTagCheckCommand
+    from src.application.commands.video_tag_fix import VideoTagFixCommand
     
-    # 加载状态
-    state: dict[str, Any] = load_state()
-    current_page: int = state.get('api', {}).get('last_page', 0)
-    failed_synced_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
-    failed_site_raw: dict[str, list] = state.get('site', {}).get('failed_domain_ids', {})
-    # 将list转换为set，方便后续操作
-    failed_site: dict[str, set[str]] = {k: set(v) for k, v in failed_site_raw.items()}
-    failed_detail_ids: list[str] = state.get('api', {}).get('failed_detail_ids', [])
+    # 注册命令
+    registry.register(ScraperCommand)
+    registry.register(OSSOriginCheckCommand)
+    registry.register(OSSIndexCheckCommand)
+    registry.register(OSSCoverCheckCommand)
+    registry.register(S3OriginCheckCommand)
+    registry.register(S3IndexCheckCommand)
+    registry.register(S3CoverCheckCommand)
+    registry.register(OSSOriginFixCommand)
+    registry.register(OSSIndexFixCommand)
+    registry.register(OSSCoverFixCommand)
+    registry.register(S3OriginFixCommand)
+    registry.register(S3IndexFixCommand)
+    registry.register(S3CoverFixCommand)
+    registry.register(SiteFixCommand)
+    registry.register(SiteCleanCommand)
+    registry.register(VideoTagCheckCommand)
+    registry.register(VideoTagFixCommand)
+
+
+def main() -> int:
+    """主函数"""
+    if len(sys.argv) < 2:
+        print("用法: python main.py <command>")
+        print("使用 'python run.py' 查看可用命令列表")
+        return 1
     
-    # 从头开始时重置页码
-    if current_page == 0:
-        current_page = 1
-        logger.info("从第1页开始抓取")
-    else:
-        current_page -= 1
-        logger.info(f"从第{current_page}页继续抓取")
-    
-    # 初始化处理器
-    api: ApiHandler = ApiHandler(config=config)
-    db: DatabaseHandler = DatabaseHandler(config=config)
-    oss_handler: OSSHandler = OSSHandler(config=config)
-    site_handler: SiteHandler = SiteHandler(config=config)
-    
-    # 注册资源用于清理
-    register_resource('api', api)
-    register_resource('db', db)
-    register_resource('oss_handler', oss_handler)
-    register_resource('site_handler', site_handler)
-    
-    # 设置Token
-    token: str | None = state.get('api', {}).get('token', '')
-    if token:
-        api.set_token(token=token)
-        logger.info("使用缓存的API Token")
+    command_name: str = sys.argv[1]
     
     try:
-        while True:
-            # 检查退出标志
-            if check_exit_flag():
-                logger.warning("检测到退出信号，保存进度并退出...")
-                break
-            
-            # 获取当前页视频列表
-            response_data: dict[str, Any] | None = api.fetch_video_page(page_number=current_page)
-            
-            # 检查请求是否失败
-            if response_data is None:
-                logger.error(f"API请求失败 (页码: {current_page})，脚本终止")
-                break
-            
-            response_code: int = response_data.get('code', -1)
-            
-            # 处理Token过期
-            if response_code == 402:
-                logger.warning("Token已过期或无效，正在尝试重新登录...")
-                new_token: str | None = api.login()
-                
-                if new_token:
-                    state['api']['token'] = new_token
-                    save_state(data=state)
-                    logger.info("重新登录成功，将重试请求当前页面")
-                    continue  # 重试当前页
-                else:
-                    logger.error("重新登录失败，脚本终止")
-                    break
-            
-            # 处理正常响应
-            elif response_code == 0:
-                videos: list[dict[str, Any]] = response_data.get('data', [])
-                
-                if not videos:
-                    logger.info(f"第{current_page}页未获取到数据，抓取结束")
-                    break
-                
-                logger.info(f"第{current_page}页获取到 {len(videos)} 条视频数据")
-                
-                # 当前页成功处理的视频ID集合
-                processed_ids: set[str] = set()
-                
-                # 处理每个视频
-                for video in videos:
-                    # 检查退出标志
-                    if check_exit_flag():
-                        logger.warning("检测到退出信号，保存进度并退出...")
-                        break
-                    
-                    douban_id: str = video.get('id', '')
-                    title: str = video.get('title', '')
-                    
-                    # 检查是否已存在
-                    if db.video_exists(douban_id=douban_id):
-                        logger.info(f"视频已存在，跳过: '{title}' (ID: {douban_id})")
-                        continue
-                    
-                    # 获取视频详情
-                    logger.info(f"获取视频详情: '{title}' (ID: {douban_id})")
-                    detail_response: dict[str, Any] | None = api.fetch_video_details(
-                        douban_id=douban_id
-                    )
-                    
-                    if detail_response and detail_response.get('code') == 0:
-                        details: dict[str, Any] | None = detail_response.get('data')
-                        
-                        if not details:
-                            logger.warning(f"视频详情为空，跳过: {douban_id}")
-                            failed_detail_ids.append(douban_id)
-                            continue
-                        
-                        # 更新视频数据
-                        video_list: list[str] = details.get('video_list', [])
-                        download_url: str = details.get('download_url', '')
-                        cover: str = details.get('cover', '')
-                        desc: str = details.get('desc', '') or details.get('c_desc', '')
-                        free_watch_episodes: int = details.get('free_watch_episodes', 0)
-                        
-                        video.update({
-                            'title': title,
-                            'video_list': video_list,
-                            'download_url': download_url,
-                            'cover': cover,
-                            'desc': desc,
-                            'free_watch_episodes': free_watch_episodes
-                        })
-                    else:
-                        logger.warning(f"获取视频详情失败: {douban_id}")
-                        failed_detail_ids.append(douban_id)
-                        continue
-                    
-                    # 插入数据库
-                    if not db.insert_video(video_data=video):
-                        logger.error(f"数据库插入失败: {douban_id}")
-                        continue
-                    
-                    processed_ids.add(douban_id)
-                    
-                    # 上传到OSS
-                    try:
-                        logger.info(f"开始上传到OSS: '{title}' (ID: {douban_id})")
-                        result: bool = oss_handler.process_single_video_sync(
-                            douban_id=int(douban_id),
-                            title=title,
-                            video_list=video_list,
-                            cover=cover
-                        )
-                        
-                        if not result:
-                            logger.error(f"OSS同步失败: {douban_id}")
-                            failed_synced_ids.append(douban_id)
-                    except Exception as e:
-                        logger.error(f"OSS同步异常: {douban_id}, 错误: {e}")
-                        failed_synced_ids.append(douban_id)
-                    
-                    # 避免请求过快
-                    time.sleep(0.5)
-                
-                # 检查是否因退出信号中断循环
-                if check_exit_flag():
-                    break
-                
-                # 同步到站点
-                if processed_ids:
-                    try:
-                        logger.info(f"开始同步 {len(processed_ids)} 个视频到站点")
-                        
-                        # 从数据库查询视频数据
-                        site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
-                            douban_ids=list(processed_ids)
-                        )
-                        
-                        if not site_videos:
-                            raise Exception("从数据库查询视频数据为空")
-                        
-                        # 同步到站点
-                        sync_failed_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
-                            videos=site_videos
-                        )
-                        
-                        # 更新失败记录
-                        if sync_failed_ids:
-                            for domain, domain_failed_ids in sync_failed_ids.items():
-                                if domain in failed_site:
-                                    failed_site[domain] |= domain_failed_ids
-                                else:
-                                    failed_site[domain] = domain_failed_ids
-                                    
-                    except Exception as e:
-                        logger.error(f"站点同步失败: {e}")
-                        
-                        # 记录所有视频到所有域名的失败列表
-                        domains_str: str = config.get('site', 'domains', fallback='')
-                        domains: list[str] = [
-                            d.strip() for d in domains_str.split(',') if d.strip()
-                        ]
-                        
-                        for domain in domains:
-                            failed_site.setdefault(domain, set()).update(processed_ids)
-                    finally:
-                        site_handler.close()
-                else:
-                    logger.info("本页没有需要同步到站点的新视频")
-                
-                # 保存状态
-                state['api']['last_page'] = current_page
-                state['oss']['failed_synced_ids'] = failed_synced_ids
-                state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-                save_state(data=state)
-                
-                # 处理下一页
-                current_page += 1
-                time.sleep(1)
-                
-            else:
-                # 其他API错误
-                logger.error(f"API返回无法处理的错误 (Code: {response_code})，脚本终止")
-                break
-                
-    except KeyboardInterrupt:
-        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
-        # 保存当前状态
-        state['api']['last_page'] = current_page
-        state['api']['failed_detail_ids'] = failed_detail_ids
-        state['oss']['failed_synced_ids'] = failed_synced_ids
-        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-        save_state(data=state)
-    except Exception as e:
-        logger.error(f"脚本执行异常: {e}", exc_info=True)
-        # 保存当前状态
-        state['api']['last_page'] = current_page
-        state['api']['failed_detail_ids'] = failed_detail_ids
-        state['oss']['failed_synced_ids'] = failed_synced_ids
-        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-        save_state(data=state)
-    finally:
-        logger.info("=" * 80)
-        logger.info("API数据抓取脚本执行结束")
-        logger.info("=" * 80)
-
-
-def run_oss_fixer(config: Any) -> None:
-    """
-    执行OSS数据修复任务
-    
-    重新上传之前失败的视频文件到OSS。
-    
-    Args:
-        config: 项目配置对象
+        # 设置环境
+        config, container, logger_manager = setup_environment()
         
-    Example:
-        >>> from core import load_config
-        >>> config = load_config()
-        >>> run_oss_fixer(config=config)
-    """
-    logger.info("=" * 80)
-    logger.info("启动OSS数据修复脚本")
-    logger.info("=" * 80)
-    
-    state: dict[str, Any] = load_state()
-    fix_ids: list[str] = state.get('oss', {}).get('failed_synced_ids', [])
-    
-    if not fix_ids:
-        logger.info("没有需要修复的OSS记录")
-        return
-    
-    logger.info(f"需要修复的记录数: {len(fix_ids)}")
-    
-    # 初始化处理器
-    api: ApiHandler = ApiHandler(config=config)
-    oss_handler: OSSHandler = OSSHandler(config=config)
-    
-    # 注册资源用于清理
-    register_resource('api', api)
-    register_resource('oss_handler', oss_handler)
-    
-    # 设置Token
-    token: str | None = state.get('api', {}).get('token', '')
-    if token:
-        api.set_token(token=token)
-    
-    failed_synced_ids: list[int] = []
-    
-    try:
-        for douban_id in fix_ids:
-            logger.info(f"开始修复: {douban_id}")
-            
-            # 最多重试2次
-            max_retries: int = 2
-            for attempt in range(max_retries):
-                # 获取视频详情
-                response_data: dict[str, Any] | None = api.fetch_video_details(
-                    douban_id=str(douban_id)
-                )
-                
-                if response_data is None:
-                    logger.error(f"获取详情失败 (douban_id: {douban_id})")
-                    break
-                
-                response_code: int = response_data.get('code', -1)
-                
-                if response_code == 0:
-                    details: dict[str, Any] | None = response_data.get('data')
-                    
-                    if not details:
-                        logger.warning(f"视频详情为空，跳过: {douban_id}")
-                        break
-                    
-                    # 提取数据
-                    video_list: list[str] = details.get('video_list', [])
-                    cover: str = details.get('cover', '')
-                    title: str = details.get('title', '')
-                    
-                    # 上传到OSS
-                    try:
-                        result: bool = oss_handler.process_single_video_sync(
-                            douban_id=douban_id,
-                            title=title,
-                            video_list=video_list,
-                            cover=cover
-                        )
-                        
-                        if result:
-                            logger.info(f"修复成功: {douban_id}")
-                            break
-                        else:
-                            raise Exception("OSS同步失败")
-                            
-                    except Exception as e:
-                        logger.error(f"OSS同步异常: {e}")
-                        failed_synced_ids.append(douban_id)
-                        break
-                
-                elif response_code == 402:
-                    # Token过期，重新登录
-                    logger.warning(f"Token已过期，尝试重新登录 (第 {attempt + 1} 次)")
-                    new_token: str | None = api.login()
-                    
-                    if new_token:
-                        state['api']['token'] = new_token
-                        save_state(data=state)
-                        continue
-                    else:
-                        logger.error("重新登录失败")
-                        failed_synced_ids.append(douban_id)
-                        break
-                else:
-                    logger.error(f"未知API错误 (Code: {response_code})")
-                    failed_synced_ids.append(douban_id)
-                    break
-            
-            # 避免请求过快
-            time.sleep(1)
-        
-        # 更新状态
-        state['oss']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-        
-    except KeyboardInterrupt:
-        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
-        state['oss']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-    except Exception as e:
-        logger.error(f"脚本执行异常: {e}", exc_info=True)
-        state['oss']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-    finally:
-        logger.info("=" * 80)
-        logger.info("OSS数据修复脚本执行结束")
-        logger.info("=" * 80)
-
-
-def run_s3_fixer(config: Any) -> None:
-    """
-    执行S3数据修复任务
-    
-    重新上传之前失败的视频文件到S3。
-    
-    Args:
-        config: 项目配置对象
-        
-    Example:
-        >>> from core import load_config
-        >>> config = load_config()
-        >>> run_s3_fixer(config=config)
-    """
-    logger.info("=" * 80)
-    logger.info("启动S3数据修复脚本")
-    logger.info("=" * 80)
-    
-    state: dict[str, Any] = load_state()
-    fix_ids: list[int] = state.get('s3', {}).get('failed_synced_ids', [])
-    
-    if not fix_ids:
-        logger.info("没有需要修复的S3记录")
-        return
-    
-    logger.info(f"需要修复的记录数: {len(fix_ids)}")
-    
-    # 初始化处理器
-    api: ApiHandler = ApiHandler(config=config)
-    s3_handler: S3Handler = S3Handler(config=config)
-    
-    # 注册资源用于清理
-    register_resource('api', api)
-    register_resource('s3_handler', s3_handler)
-    
-    # 设置Token
-    token: str | None = state.get('api', {}).get('token', '')
-    if token:
-        api.set_token(token=token)
-    
-    failed_synced_ids: list[int] = []
-    
-    try:
-        for douban_id in fix_ids:
-            # 检查退出标志
-            if check_exit_flag():
-                logger.warning("检测到退出信号，保存进度并退出...")
-                break
-            
-            logger.info(f"开始修复: {douban_id}")
-            
-            # 最多重试2次
-            max_retries: int = 2
-            for attempt in range(max_retries):
-                # 获取视频详情
-                response_data: dict[str, Any] | None = api.fetch_video_details(
-                    douban_id=str(douban_id)
-                )
-                
-                if response_data is None:
-                    logger.error(f"获取详情失败 (douban_id: {douban_id})")
-                    break
-                
-                response_code: int = response_data.get('code', -1)
-                
-                if response_code == 0:
-                    details: dict[str, Any] | None = response_data.get('data')
-                    
-                    if not details:
-                        logger.warning(f"视频详情为空，跳过: {douban_id}")
-                        break
-                    
-                    # 提取数据
-                    video_list: list[str] = details.get('video_list', [])
-                    cover: str = details.get('cover', '')
-                    title: str = details.get('title', '')
-                    
-                    # 上传到S3
-                    try:
-                        result: bool = s3_handler.process_single_video_sync(
-                            douban_id=douban_id,
-                            title=title,
-                            video_list=video_list,
-                            cover=cover
-                        )
-                        
-                        if result:
-                            logger.info(f"修复成功: {douban_id}")
-                            break
-                        else:
-                            raise Exception("S3同步失败")
-                            
-                    except Exception as e:
-                        logger.error(f"S3同步异常: {e}")
-                        failed_synced_ids.append(douban_id)
-                        break
-                
-                elif response_code == 402:
-                    # Token过期，重新登录
-                    logger.warning(f"Token已过期，尝试重新登录 (第 {attempt + 1} 次)")
-                    new_token: str | None = api.login()
-                    
-                    if new_token:
-                        state['api']['token'] = new_token
-                        save_state(data=state)
-                        continue
-                    else:
-                        logger.error("重新登录失败")
-                        failed_synced_ids.append(douban_id)
-                        break
-                else:
-                    logger.error(f"未知API错误 (Code: {response_code})")
-                    failed_synced_ids.append(douban_id)
-                    break
-            
-            # 避免请求过快
-            time.sleep(1)
-        
-        # 更新状态
-        state['s3']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-        
-    except KeyboardInterrupt:
-        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
-        state['s3']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-    except Exception as e:
-        logger.error(f"脚本执行异常: {e}", exc_info=True)
-        state['s3']['failed_synced_ids'] = failed_synced_ids
-        save_state(data=state)
-    finally:
-        logger.info("=" * 80)
-        logger.info("S3数据修复脚本执行结束")
-        logger.info("=" * 80)
-
-
-def run_site_fixer(config: Any) -> None:
-    """
-    执行站点数据修复任务
-    
-    重新同步之前失败的视频数据到站点。
-    
-    Args:
-        config: 项目配置对象
-        
-    Example:
-        >>> from core import load_config
-        >>> config = load_config()
-        >>> run_site_fixer(config=config)
-    """
-    logger.info("=" * 80)
-    logger.info("启动站点数据修复脚本")
-    logger.info("=" * 80)
-    
-    state: dict[str, Any] = load_state()
-    db: DatabaseHandler = DatabaseHandler(config=config)
-    site_handler: SiteHandler = SiteHandler(config=config)
-    
-    # 注册资源用于清理
-    register_resource('db', db)
-    register_resource('site_handler', site_handler)
-    
-    fix_sites: dict[str, list[str]] = state.get('site', {}).get('failed_domain_ids', {})
-    failed_site: dict[str, set[str]] = {}
-    
-    if not fix_sites:
-        logger.info("没有需要修复的站点同步记录")
-        return
-    
-    try:
-        # 遍历每个域名的失败记录
-        for domain, failed_ids in fix_sites.items():
-            # 检查退出标志
-            if check_exit_flag():
-                logger.warning("检测到退出信号，保存进度并退出...")
-                break
-            
-            if not failed_ids:
-                continue
-            
-            logger.info(f"开始修复域名 {domain} 的 {len(failed_ids)} 个失败记录")
-            
-            # 从数据库查询视频数据
-            site_videos: list[dict[str, Any]] = db.get_videos_by_ids(
-                douban_ids=list(failed_ids)
-            )
-            
-            if not site_videos:
-                logger.warning(f"域名 {domain} 从数据库查询视频数据为空")
-                failed_site[domain] = set(failed_ids)
-                continue
-            
-            # 重新同步到站点
-            try:
-                failed_site_ids: dict[str, set[str]] = site_handler.sync_videos_to_site(
-                    videos=site_videos,
-                    domain=domain
-                )
-                
-                if failed_site_ids:
-                    for d, fids in failed_site_ids.items():
-                        failed_site[d] = fids
-                        
-            except Exception as e:
-                logger.error(f"站点修复失败: {e}")
-                failed_site[domain] = set(failed_ids)
-        
-        # 更新状态
-        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-        save_state(data=state)
-        
-    except KeyboardInterrupt:
-        logger.warning("用户中断操作 (Ctrl+C)，保存当前进度...")
-        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-        save_state(data=state)
-    except Exception as e:
-        logger.error(f"脚本执行异常: {e}", exc_info=True)
-        state['site']['failed_domain_ids'] = {k: list(v) for k, v in failed_site.items()}
-        save_state(data=state)
-    finally:
-        logger.info("=" * 80)
-        logger.info("站点数据修复脚本执行结束")
-        logger.info("=" * 80)
-
-
-def run_site_clean(config: Any) -> None:
-    """
-    执行站点数据清理任务
-    
-    清理所有配置站点的数据。
-    
-    Args:
-        config: 项目配置对象
-        
-    Example:
-        >>> from core import load_config
-        >>> config = load_config()
-        >>> run_site_clean(config=config)
-    """
-    logger.info("=" * 80)
-    logger.info("启动站点数据清理脚本")
-    logger.info("=" * 80)
-    
-    site_handler: SiteHandler = SiteHandler(config=config)
-    
-    # 注册资源用于清理
-    register_resource('site_handler', site_handler)
-    
-    try:
-        results: dict[str, bool] = site_handler.clean_to_site()
-        
-        # 输出结果
-        for domain, success in results.items():
-            status: str = "成功" if success else "失败"
-            logger.info(f"{domain}: 清理{status}")
-    
-    except KeyboardInterrupt:
-        logger.warning("用户中断操作 (Ctrl+C)")
-    except Exception as e:
-        logger.error(f"脚本执行异常: {e}", exc_info=True)
-    finally:
-        logger.info("=" * 80)
-        logger.info("站点数据清理脚本执行结束")
-        logger.info("=" * 80)
-
-
-# ============================================================================
-# 命令行入口
-# ============================================================================
-
-def main() -> None:
-    """
-    程序主函数
-    
-    解析命令行参数并路由到相应的处理函数。
-    
-    Supported Commands:
-        - scraper: 抓取API元数据
-        - oss_fix: 修复OSS上传失败的数据
-        - s3_fix: 修复S3上传失败的数据
-        - site_fix: 修复站点同步失败的数据
-        - site_clean: 清理站点数据
-        
-    Example:
-        $ python main.py scraper
-        $ python main.py oss_fix
-        $ python main.py site_clean
-    """
-    # 注册信号处理器
-    signal.signal(signal.SIGINT, signal_handler)
-    if hasattr(signal, 'SIGTERM'):
-        signal.signal(signal.SIGTERM, signal_handler)
-    
-    # 注册退出清理函数
-    atexit.register(cleanup_resources)
-    
-    try:
-        parser: argparse.ArgumentParser = argparse.ArgumentParser(
-            description="视频数据同步系统 - Python 3.11+ 企业级项目",
-            epilog="Author: Qasim | Version: 2.0"
+        # 创建命令上下文
+        context: CommandContext = CommandContext(
+            container=container,
+            config=config,
+            logger_manager=logger_manager
         )
         
-        subparsers = parser.add_subparsers(
-            dest='command',
-            required=True,
-            help='选择要执行的命令'
-        )
+        # 创建并注册命令
+        registry: CommandRegistry = CommandRegistry()
+        register_commands(registry=registry)
         
-        # 创建子命令
-        subparsers.add_parser('scraper', help='抓取API元数据并存入数据库')
-        subparsers.add_parser('oss_fix', help='修复OSS上传失败的数据')
-        subparsers.add_parser('s3_fix', help='修复S3上传失败的数据')
-        subparsers.add_parser('site_fix', help='修复站点同步失败的数据')
-        subparsers.add_parser('site_clean', help='清理站点数据')
+        # 获取并执行命令
+        command: BaseCommand = registry.get_command(name=command_name, context=context)
+        exit_code: int = command.execute()
         
-        # 解析参数
-        args: argparse.Namespace = parser.parse_args()
+        # 清理资源
+        command.cleanup()
         
-        # 加载配置
-        config: Any = load_config()
+        return exit_code
         
-        # 路由到相应函数
-        if args.command == 'scraper':
-            run_scraper(config=config)
-        elif args.command == 'oss_fix':
-            run_oss_fixer(config=config)
-        elif args.command == 's3_fix':
-            run_s3_fixer(config=config)
-        elif args.command == 'site_fix':
-            run_site_fixer(config=config)
-        elif args.command == 'site_clean':
-            run_site_clean(config=config)
-        else:
-            parser.print_help()
-    
+    except ValidationError as e:
+        print(f"❌ 验证错误: {e}")
+        return 1
+    except ConfigurationError as e:
+        print(f"❌ 配置错误: {e}")
+        return 1
     except KeyboardInterrupt:
-        logger.warning("\n程序被用户中断")
-        sys.exit(0)
+        print("\n\n⚠️  用户中断")
+        return 0
     except Exception as e:
-        logger.critical(f"程序执行失败: {e}", exc_info=True)
-        sys.exit(1)
+        print(f"❌ 未知错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sys.exit(main())

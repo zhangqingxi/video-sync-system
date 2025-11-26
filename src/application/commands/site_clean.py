@@ -12,6 +12,7 @@ import requests
 from typing import Any
 from src.application.commands.base import BaseCommand
 
+
 class SiteCleanCommand(BaseCommand):
     """站点清理命令"""
     

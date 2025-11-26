@@ -16,6 +16,7 @@ from src.infrastructure.database import VideoRepositoryImpl
 from src.infrastructure.storage import StorageFactory
 from src.core.protocols import StorageProvider
 
+
 class S3OriginCheckCommand(BaseCommand):
     """S3 Origin资源检查命令"""
     

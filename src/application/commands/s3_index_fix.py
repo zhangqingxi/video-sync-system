@@ -152,7 +152,7 @@ class S3IndexFixCommand(BaseCommand):
                 resource_episode=episode
             )
 
-            content: bytes = s3_adapter.download_file(origin_key)
+            content: bytes | None = s3_adapter.download_file(origin_key)
             if not content:
                 if episode == 1:
                     self.logger.warning(f"Origin文件不存在: ID={video_id}, Key={origin_key}")
@@ -192,7 +192,7 @@ class S3IndexFixCommand(BaseCommand):
                 )
 
                 # 下载 TS
-                if not s3_adapter.upload_from_url(ts_url, ts_key):
+                if not s3_adapter.upload_from_url(resource_url=ts_url, resource_type='index', resource_key=ts_key):
                     self.logger.error(f"TS上传失败: {ts_url}")
                     return False
 

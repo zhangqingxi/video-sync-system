@@ -41,6 +41,10 @@ class StateData:
     last_checked_oss_index: int = 0
     last_checked_s3_cover: int = 0
     last_checked_oss_cover: int = 0
+    
+    # 视频标签检查相关
+    last_checked_video_tag: int = 0
+    failed_video_tag_ids: list[int] = field(default_factory=list)
 
 
 class StateManager:
@@ -233,6 +237,33 @@ class StateManager:
         """清空指定域名的失败ID列表"""
         if domain in self._state.site_failed_synced_ids:
             del self._state.site_failed_synced_ids[domain]
+            self._save()
+
+    # ==================== 视频标签检查相关 ====================
+    
+    def get_last_checked_video_tag(self) -> int:
+        """获取上次检查的视频标签ID"""
+        return self._state.last_checked_video_tag
+    
+    def update_last_checked_video_tag(self, video_id: int) -> None:
+        """更新上次检查的视频标签ID"""
+        self._state.last_checked_video_tag = video_id
+        self._save()
+    
+    def get_failed_video_tag_ids(self) -> list[int]:
+        """获取标签检查失败ID列表"""
+        return self._state.failed_video_tag_ids.copy()
+    
+    def add_failed_video_tag_id(self, video_id: int) -> None:
+        """添加标签检查失败ID"""
+        if video_id not in self._state.failed_video_tag_ids:
+            self._state.failed_video_tag_ids.append(video_id)
+            self._save()
+    
+    def remove_failed_video_tag_id(self, video_id: int) -> None:
+        """移除标签检查失败ID"""
+        if video_id in self._state.failed_video_tag_ids:
+            self._state.failed_video_tag_ids.remove(video_id)
             self._save()
     
     # ========== 检查进度管理 ==========

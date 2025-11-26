@@ -14,6 +14,7 @@ from Crypto.Cipher import AES
 from Crypto.Cipher._mode_cbc import CbcMode
 from Crypto.Util.Padding import pad, unpad
 
+
 class AESCrypto:
     """AES加密工具类"""
     

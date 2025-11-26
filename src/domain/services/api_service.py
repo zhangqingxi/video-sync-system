@@ -28,7 +28,7 @@ class APIService:
         timing_config: TimingConfig,
         state_manager: StateManager,
         logger: LoggerProvider
-    ):
+    ) -> None:
         """
         初始化API服务
         
@@ -131,7 +131,7 @@ class APIService:
             
             # 返回 data.list[0]
             data: dict[str, Any] = response.get('data', {})
-            detail_list: list[Any] = data.get('list', [])
+            detail_list: list[dict[str, Any]] = data.get('list', [])
             
             if detail_list and len(detail_list) > 0:
                 return detail_list[0]

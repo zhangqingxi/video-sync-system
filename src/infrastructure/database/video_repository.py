@@ -44,7 +44,7 @@ class VideoRepositoryImpl(VideoRepository):
         results: list[dict[str, Any]] = self._db_pool.execute_query(query=query, params=(video_id,))
         return results[0] if results else None
     
-    def get_videos_after_id(self, last_id: int, limit: int = 100) -> list[dict[str, any]]:
+    def get_videos_after_id(self, last_id: int, limit: int = 100) -> list[dict[str, Any]]:
         """
         获取ID之后的视频列表
         

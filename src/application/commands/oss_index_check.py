@@ -16,6 +16,7 @@ from src.infrastructure.database import VideoRepositoryImpl
 from src.infrastructure.storage import StorageFactory
 from src.core.protocols import StorageProvider
 
+
 class OSSIndexCheckCommand(BaseCommand):
     """OSS Index资源检查命令"""
     

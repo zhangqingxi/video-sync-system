@@ -13,6 +13,7 @@ from src.core.config import StorageConfig, ConstantsConfig
 from src.core.protocols import LoggerProvider
 from src.utils.crypto import AESCrypto
 
+
 class BaseStorageAdapter(ABC):
     """存储适配器基类"""
     

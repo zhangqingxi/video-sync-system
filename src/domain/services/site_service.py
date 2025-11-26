@@ -14,6 +14,7 @@ from urllib.parse import urljoin
 from typing import Any
 from src.core.protocols import LoggerProvider
 
+
 class SiteService:
     """站点同步服务"""
     
@@ -23,7 +24,7 @@ class SiteService:
         api_token: str,
         sync_endpoint: str,
         logger: LoggerProvider
-    ):
+    ) -> None:
         """
         初始化站点服务
         
@@ -51,7 +52,7 @@ class SiteService:
         if not videos:
             return {}
         
-        all_video_ids: set[int] = set(v.get('vod_douban_id') for v in videos)
+        all_video_ids: set[int] = {int(v['vod_douban_id']) for v in videos if v.get('vod_douban_id')}
         failed_by_domain: dict[str, list[int]] = {}
         
         for domain in self.domains:

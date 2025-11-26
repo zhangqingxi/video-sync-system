@@ -60,5 +60,7 @@ Thumbs.db
 *.backup
 *.tmp
 
+.mypy_cache
+
 
 

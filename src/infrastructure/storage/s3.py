@@ -7,12 +7,13 @@ Python: 3.11+
 """
 
 import boto3
+from typing import cast
 from botocore.exceptions import ClientError
-
 from src.core.config import StorageConfig, ConstantsConfig
 from src.core.exceptions import StorageError
 from src.core.protocols import LoggerProvider
 from src.infrastructure.storage.base import BaseStorageAdapter
+
 
 class S3Adapter(BaseStorageAdapter):
     """AWS S3存储适配器"""
@@ -22,7 +23,7 @@ class S3Adapter(BaseStorageAdapter):
         config: StorageConfig,
         constants: ConstantsConfig,
         logger: LoggerProvider
-    ):
+    ) -> None:
         """
         初始化S3适配器
         
@@ -105,7 +106,7 @@ class S3Adapter(BaseStorageAdapter):
         """
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=key)
-            return response['Body'].read()
+            return cast(bytes, response['Body'].read())
         except ClientError as e:
             self.logger.error(f"S3下载失败 ({key}): {e}")
             return None

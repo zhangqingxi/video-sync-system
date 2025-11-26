@@ -11,6 +11,7 @@ Python: 3.11+
 from typing import Any
 from dataclasses import dataclass, field
 
+
 @dataclass
 class Video:
     """视频领域模型"""

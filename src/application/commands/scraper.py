@@ -108,7 +108,41 @@ class ScraperCommand(BaseCommand):
                             processed_videos.append(vod_dict)
                             self.logger.info(f"插入成功: ID={video.id}, Title={video.title}")
                             
-                            # 6. 上传OSS
+                            # 6. 插入标签数据
+                            try:
+                                from src.infrastructure.database import TagRepositoryImpl, DatabasePool
+                                
+                                db_pool: DatabasePool = self.container.resolve(interface=DatabasePool)
+                                tag_repo: TagRepositoryImpl = TagRepositoryImpl(
+                                    db_pool=db_pool,
+                                    logger=self.logger
+                                )
+                                
+                                tags: list[str] = video.tags if video.tags else []
+                                if tags:
+                                    self.logger.info(f"开始插入标签: ID={video.id}, 标签数={len(tags)}")
+                                    
+                                    # 先删除旧标签（如果有的话）
+                                    tag_repo.delete_video_tags(douban_id=int(video.id))
+                                    
+                                    # 插入新标签
+                                    for tag_name in tags:
+                                        tag_id: int = tag_repo.ensure_tag_exists(tag_name=tag_name)
+                                        tag_repo.insert_video_tag(
+                                            douban_id=int(video.id),
+                                            tag_id=tag_id,
+                                            type_id=16
+                                        )
+                                    
+                                    self.logger.info(f"标签插入成功: ID={video.id}, 标签数={len(tags)}")
+                                else:
+                                    self.logger.warning(f"视频无标签数据: ID={video.id}")
+                                    
+                            except Exception as e:
+                                self.logger.error(f"标签插入失败: ID={video.id}, Error={e}")
+                                state_manager.add_failed_video_tag_id(video_id=int(video.id))
+                            
+                            # 7. 上传OSS
                             try:
                                 self.logger.info(f"开始上传OSS: ID={video.id}")
                                 uploaded: bool = oss_adapter.process_single_video_sync(
@@ -134,7 +168,7 @@ class ScraperCommand(BaseCommand):
                         
                         time.sleep(self.config.timing.request_delay)
                     
-                    # 7. 同步到站点（复用 processed_videos）
+                    # 8. 同步到站点（复用 processed_videos）
                     if processed_videos and domains:
                         try:
                             from src.domain.services import SiteService

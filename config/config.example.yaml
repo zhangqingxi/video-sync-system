@@ -1,0 +1,118 @@
+# ============================================================================
+# 数据库配置
+# ============================================================================
+database:
+  host: localhost                    # MySQL服务器地址
+  port: 3306                         # MySQL服务器端口
+  user: root                         # 数据库用户名
+  password: your_password            # 数据库密码
+  database: video_sync               # 数据库名称
+  video_table_name: video_table_name # 视频数据表名
+  charset: utf8mb4                   # 字符集编码
+  min_connections: 1                 # 连接池最小连接数
+  max_connections: 10                # 连接池最大连接数
+  connect_timeout: 10                # 连接超时时间（秒）
+  read_timeout: 30                   # 读取超时时间（秒）
+  write_timeout: 30                  # 写入超时时间（秒）
+
+# ============================================================================
+# 云存储配置
+# ============================================================================
+storage:
+  # AWS S3 配置
+  s3:
+    access_key: YOUR_ACCESS_KEY_ID              # S3访问密钥ID
+    secret_key: YOUR_SECRET_ACCESS_KEY          # S3访问密钥
+    region: us-east-1                           # S3区域
+    bucket: your-bucket-name                    # S3存储桶名称
+    encryption_key: your_encryption_key_32_chars_min  # AES加密密钥（至少32字符）
+    request_timeout: 60                         # 请求超时时间（秒）
+  
+  # 阿里云OSS配置
+  oss:
+    access_key: YOUR_ACCESS_KEY_ID              # OSS访问密钥ID
+    secret_key: YOUR_SECRET_ACCESS_KEY          # OSS访问密钥
+    region: oss-cn-hangzhou                     # OSS区域
+    bucket: your-bucket-name                    # OSS存储桶名称
+    encryption_key: your_encryption_key_32_chars_min  # AES加密密钥（至少32字符）
+    request_timeout: 60                         # 请求超时时间（秒）
+
+# ============================================================================
+# 第三方API配置
+# ============================================================================
+api:
+  base_url: https://api-business.provideoshrot.com  # API基础URL
+  domain: zzy.provideoshrot.com                     # 域名（用于伪装请求头）
+  username: 184307063@qq.com                        # API登录用户名
+  password: tAmTUpfonLae0A                          # API登录密码
+  
+  # API端点配置
+  endpoints:
+    video_list: /video/index                   # 视频列表接口
+    video_detail: /video/get-video             # 视频详情接口
+    login: /login/check-login                  # 登录接口
+  
+  # 分页配置
+  page_size: 50                                # 每页返回数量
+  
+  # 请求超时配置
+  timeout: 30                                  # 请求超时时间（秒）
+  
+  # HTTP请求头伪装配置
+  headers:
+    user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36  # 浏览器标识
+    host: zzy.provideoshrot.com                # Host头（伪装）
+    origin: https://zzy.provideoshrot.com      # Origin头（伪装）
+    referer: https://zzy.provideoshrot.com     # Referer头（伪装）
+  
+  # 重试配置
+  retry:
+    max_attempts: 3                            # 最大重试次数
+    backoff_factor: 2                          # 退避因子（指数退避）
+
+# ============================================================================
+# 站点同步配置
+# ============================================================================
+site:
+  # 目标站点域名列表
+  domains:
+    - https://site1.example.com                # 站点1
+    - https://site2.example.com                # 站点2
+  
+  api_token: your_api_token                    # API认证Token
+  
+  # 接口端点
+  endpoints:
+    sync: /api/sync                            # 同步接口
+    clean: /api/clean                          # 清理接口
+  
+  timeout: 30                                  # 请求超时时间（秒）
+
+# ============================================================================
+# 线程配置
+# ============================================================================
+threads:
+  check: 4                                     # 资源检查线程数
+  sync: 4                                      # 资源同步线程数
+
+# ============================================================================
+# 时间延迟配置
+# ============================================================================
+timing:
+  request_delay: 0.5                           # API请求间隔（秒）
+  page_delay: 1.0                              # 翻页延迟（秒）
+
+# ============================================================================
+# 常量配置
+# ============================================================================
+constants:
+  video_prefix: video_data                     # 视频数据存储前缀
+  origin_filename: origin.m3u8                 # 源站m3u8文件名
+  index_filename: index.m3u8                   # 索引m3u8文件名
+  cover_filename: cover.jpg                    # 封面图片文件名
+
+# ============================================================================
+# 状态文件配置
+# ============================================================================
+state:
+  file: state.json                             # 状态文件路径

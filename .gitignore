@@ -35,10 +35,10 @@ env/
 .DS_Store
 
 # Project Specific
-config.ini
 state.json
 logs/
 *.log
+config/config.yaml
 
 # Database
 *.db
@@ -59,3 +59,6 @@ Thumbs.db
 *.bak
 *.backup
 *.tmp
+
+
+

@@ -4,33 +4,31 @@
 # pip install -r requirements.txt
 
 # 核心依赖
-requests==2.32.5
-pymysql==1.1.2
-urllib3==2.5.0
+requests==2.32.3
+mysql-connector-python==9.1.0
+urllib3==2.2.3
 
 # AWS S3
-boto3==1.40.73
-botocore==1.40.73
+boto3==1.35.76
+botocore==1.35.76
 
 # 阿里云OSS
 alibabacloud-oss-v2==1.2.1
 
 # 加密库
-pycryptodome==3.23.0
+pycryptodome==3.21.0
 
 # 类型检查（开发环境）
-mypy==1.18.2
-types-requests==2.32.4.20250913
-types-PyYAML==6.0.12.20250915
-types-PyMySQL==1.1.0.20250916
-types-boto3==1.41.4
+mypy==1.13.0
+types-requests==2.32.0.20241016
+types-PyYAML==6.0.12.20240917
 
 # 代码格式化（开发环境）
-black==25.11.0
-flake8==7.3.0
-isort==7.0.0
+black==24.10.0
+flake8==7.1.1
+isort==5.13.2
 
 # 测试（开发环境）
-pytest==9.0.1
-pytest-cov==7.0.0
+pytest==8.3.4
+pytest-cov==6.0.0
 

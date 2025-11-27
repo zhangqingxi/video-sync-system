@@ -5,16 +5,16 @@ from src.infrastructure.storage import (
     BaseStorageAdapter,
     S3Adapter,
     OSSAdapter,
-    StorageFactory
+    StorageFactory,
 )
 from src.infrastructure.http import HTTPClient
 
 __all__ = [
-    'DatabasePool',
-    'VideoRepositoryImpl',
-    'BaseStorageAdapter',
-    'S3Adapter',
-    'OSSAdapter',
-    'StorageFactory',
-    'HTTPClient',
+    "DatabasePool",
+    "VideoRepositoryImpl",
+    "BaseStorageAdapter",
+    "S3Adapter",
+    "OSSAdapter",
+    "StorageFactory",
+    "HTTPClient",
 ]

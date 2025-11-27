@@ -15,13 +15,14 @@ from src.core.config import DatabaseConfig
 from src.core.exceptions import DatabaseError
 from src.core.protocols import LoggerProvider
 
+
 class DatabasePool:
     """数据库连接池"""
-    
+
     def __init__(self, config: DatabaseConfig, logger: LoggerProvider) -> None:
         """
         初始化数据库连接池
-        
+
         Args:
             config: 数据库配置
             logger: 日志提供者
@@ -30,7 +31,7 @@ class DatabasePool:
         self.logger: LoggerProvider = logger
         self._pool: pooling.MySQLConnectionPool | None = None
         self._initialize_pool()
-    
+
     def _initialize_pool(self) -> None:
         """初始化连接池"""
         try:
@@ -44,38 +45,42 @@ class DatabasePool:
                 database=self.config.database,
                 charset=self.config.charset,
                 connect_timeout=self.config.connect_timeout,
-                autocommit=True
+                autocommit=True,
             )
-            self.logger.info(f"数据库连接池初始化成功 (max_connections={self.config.max_connections})")
+            self.logger.info(
+                f"数据库连接池初始化成功 (max_connections={self.config.max_connections})"
+            )
         except mysql.connector.Error as e:
             raise DatabaseError(f"Failed to initialize database pool: {e}")
-    
+
     def get_connection(self) -> Any:
         """
         从连接池获取连接
-        
+
         Returns:
             连接对象
-            
+
         Raises:
             DatabaseError: 获取连接失败时抛出
         """
         if not self._pool:
             raise DatabaseError("Connection pool not initialized")
-            
+
         try:
             return self._pool.get_connection()
         except mysql.connector.Error as e:
             raise DatabaseError(f"Failed to get connection from pool: {e}")
-    
-    def execute_query(self, query: str, params: tuple | None = None) -> list[dict[str, Any]]:
+
+    def execute_query(
+        self, query: str, params: tuple | None = None
+    ) -> list[dict[str, Any]]:
         """
         执行查询并返回结果
-        
+
         Args:
             query: SQL查询语句
             params: 查询参数
-            
+
         Returns:
             list[dict]: 查询结果（字典列表）
         """
@@ -95,15 +100,15 @@ class DatabasePool:
                 cursor.close()
             if conn:
                 conn.close()
-    
+
     def execute_update(self, query: str, params: tuple | None = None) -> int:
         """
         执行更新操作
-        
+
         Args:
             query: SQL语句
             params: 参数
-            
+
         Returns:
             int: 受影响的行数
         """

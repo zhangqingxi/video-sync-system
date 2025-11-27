@@ -16,6 +16,7 @@ from src.infrastructure.storage import StorageFactory
 from src.infrastructure.http import HTTPClient
 from src.core.protocols import StorageProvider
 
+
 class S3IndexFixCommand(BaseCommand):
     """S3 index资源修复命令"""
 
@@ -41,14 +42,14 @@ class S3IndexFixCommand(BaseCommand):
             s3_adapter: StorageProvider = StorageFactory.create_s3(
                 config=self.config.s3_storage,
                 constants=self.config.constants,
-                logger=self.logger
+                logger=self.logger,
             )
 
             # 初始化HTTP客户端 (用于下载TS)
             http_client: HTTPClient = HTTPClient(
                 api_config=self.config.api,
                 state_manager=state_manager,
-                logger=self.logger
+                logger=self.logger,
             )
 
             # 获取失败ID列表
@@ -71,10 +72,7 @@ class S3IndexFixCommand(BaseCommand):
                 futures: dict[Future[bool], int] = {}
                 for video_id in failed_ids:
                     future: Future[bool] = executor.submit(
-                        self._fix_video_index,
-                        video_id,
-                        s3_adapter,
-                        http_client
+                        self._fix_video_index, video_id, s3_adapter, http_client
                     )
                     futures[future] = video_id
 
@@ -111,10 +109,7 @@ class S3IndexFixCommand(BaseCommand):
             return 1
 
     def _fix_video_index(
-            self,
-            video_id: int,
-            s3_adapter: StorageProvider,
-            http_client: HTTPClient
+        self, video_id: int, s3_adapter: StorageProvider, http_client: HTTPClient
     ) -> bool:
         """
         修复单个视频的index资源
@@ -136,32 +131,34 @@ class S3IndexFixCommand(BaseCommand):
             return False
 
     def _process_episode(
-            self,
-            video_id: int,
-            episode: int,
-            s3_adapter: StorageProvider,
-            http_client: HTTPClient
+        self,
+        video_id: int,
+        episode: int,
+        s3_adapter: StorageProvider,
+        http_client: HTTPClient,
     ) -> bool:
         """处理单集"""
         try:
             # 1. 下载 origin.m3u8
             origin_key: str = s3_adapter.generate_key(
                 resource_id=video_id,
-                resource_origin='type_16',
-                resource_filename='origin.m3u8',
-                resource_episode=episode
+                resource_origin="type_16",
+                resource_filename="origin.m3u8",
+                resource_episode=episode,
             )
 
             content: bytes | None = s3_adapter.download_file(origin_key)
             if not content:
                 if episode == 1:
-                    self.logger.warning(f"Origin文件不存在: ID={video_id}, Key={origin_key}")
+                    self.logger.warning(
+                        f"Origin文件不存在: ID={video_id}, Key={origin_key}"
+                    )
                 return False
 
-            m3u8_content: str = content.decode('utf-8')
+            m3u8_content: str = content.decode("utf-8")
 
             # 2. 解析TS链接
-            ts_urls: list[str] = re.findall(r'(https?://[^\s]+)', m3u8_content)
+            ts_urls: list[str] = re.findall(r"(https?://[^\s]+)", m3u8_content)
             if not ts_urls:
                 self.logger.warning(f"未找到TS链接: ID={video_id}")
                 return False
@@ -169,14 +166,14 @@ class S3IndexFixCommand(BaseCommand):
             # 3. 下载并上传TS
             new_m3u8_lines: list[str] = []
             ts_count: int = 0
-        
+
             lines: list[str] = m3u8_content.splitlines()
             for line in lines:
-                if line.startswith('#'):
+                if line.startswith("#"):
                     new_m3u8_lines.append(line)
                     continue
 
-                if line.strip() == '':
+                if line.strip() == "":
                     continue
 
                 # 是URL行
@@ -186,13 +183,15 @@ class S3IndexFixCommand(BaseCommand):
                 # 生成TS的S3 Key
                 ts_key: str = s3_adapter.generate_key(
                     resource_id=video_id,
-                    resource_origin='type_16',
+                    resource_origin="type_16",
                     resource_filename=ts_filename,
-                    resource_episode=episode
+                    resource_episode=episode,
                 )
 
                 # 下载 TS
-                if not s3_adapter.upload_from_url(resource_url=ts_url, resource_type='index', resource_key=ts_key):
+                if not s3_adapter.upload_from_url(
+                    resource_url=ts_url, resource_type="index", resource_key=ts_key
+                ):
                     self.logger.error(f"TS上传失败: {ts_url}")
                     return False
 
@@ -200,15 +199,19 @@ class S3IndexFixCommand(BaseCommand):
                 ts_count += 1
 
             # 4. 上传 index.m3u8
-            index_content: str = '\n'.join(new_m3u8_lines)
+            index_content: str = "\n".join(new_m3u8_lines)
             index_key: str = s3_adapter.generate_key(
                 resource_id=video_id,
-                resource_origin='type_16',
-                resource_filename='index.m3u8',
-                resource_episode=episode
+                resource_origin="type_16",
+                resource_filename="index.m3u8",
+                resource_episode=episode,
             )
 
-            if not s3_adapter.upload_file(key=index_key, content=index_content.encode('utf-8'), content_type='application/vnd.apple.mpegurl'):
+            if not s3_adapter.upload_file(
+                key=index_key,
+                content=index_content.encode("utf-8"),
+                content_type="application/vnd.apple.mpegurl",
+            ):
                 self.logger.error(f"Index m3u8上传失败: ID={video_id}")
                 return False
 

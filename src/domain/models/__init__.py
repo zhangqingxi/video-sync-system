@@ -2,4 +2,4 @@
 
 from src.domain.models.video import Video
 
-__all__ = ['Video']
+__all__ = ["Video"]

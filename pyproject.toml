@@ -1,0 +1,67 @@
+[project]
+name = "video-sync-system"
+version = "3.0.0"
+description = "企业级视频数据同步系统 - 支持AWS S3/阿里云OSS云存储和站点数据同步"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Qasim", email = "1575078379l@163.com" }]
+keywords = ["video-sync", "aws-s3", "aliyun-oss", "data-synchronization"]
+
+# 运行时依赖
+dependencies = [
+    "requests>=2.32.5",
+    "pymysql>=1.1.2",
+    "urllib3>=2.5.0",
+    "boto3>=1.40.73",
+    "botocore>=1.40.73",
+    "alibabacloud-oss-v2>=1.2.1",
+    "pycryptodome>=3.23.0",
+    "pyyaml>=6.0.2",
+]
+
+# 开发依赖（可选安装）
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.18.2",
+    "types-requests>=2.32.4.20250913",
+    "types-PyYAML>=6.0.12.20250915",
+    "types-PyMySQL>=1.1.0.20250916",
+    "types-boto3>=1.41.4",
+    "black>=25.11.0",
+    "flake8>=7.3.0",
+    "isort>=7.0.0",
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/zhangqingxi/video-sync-system"
+
+# ==================== 工具配置 ====================
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["src"]
+known_third_party = ["boto3", "pymysql", "requests", "alibabacloud_oss_v2"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203, E501, W503"
+exclude = [".git", "__pycache__", "build", "dist", ".venv", "venv"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["-v", "--tb=short", "--cov=src", "--cov-report=term-missing"]

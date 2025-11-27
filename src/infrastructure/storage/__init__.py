@@ -6,8 +6,8 @@ from src.infrastructure.storage.oss import OSSAdapter
 from src.infrastructure.storage.factory import StorageFactory
 
 __all__ = [
-    'BaseStorageAdapter',
-    'S3Adapter',
-    'OSSAdapter',
-    'StorageFactory',
+    "BaseStorageAdapter",
+    "S3Adapter",
+    "OSSAdapter",
+    "StorageFactory",
 ]

@@ -16,59 +16,61 @@ from src.core.config import ConfigManager
 
 class TestDIContainer(unittest.TestCase):
     """依赖注入容器测试"""
-    
+
     def setUp(self) -> None:
         """测试前准备"""
         self.container = DIContainer()
-    
+
     def test_register_and_resolve_singleton(self) -> None:
         """测试单例注册和解析"""
+
         # 注册单例服务
         class TestService:
             def __init__(self) -> None:
                 self.value = 42
-        
+
         self.container.register(TestService, lambda: TestService(), singleton=True)
-        
+
         # 解析服务
         service1 = self.container.resolve(TestService)
         service2 = self.container.resolve(TestService)
-        
+
         # 验证是同一实例
         self.assertIs(service1, service2)
         self.assertEqual(service1.value, 42)
-    
+
     def test_register_and_resolve_transient(self) -> None:
         """测试瞬时服务注册和解析"""
+
         class TestService:
             pass
-        
+
         self.container.register(TestService, lambda: TestService(), singleton=False)
-        
+
         # 解析服务
         service1 = self.container.resolve(TestService)
         service2 = self.container.resolve(TestService)
-        
+
         # 验证不是同一实例
         self.assertIsNot(service1, service2)
 
 
 class TestConfigManager(unittest.TestCase):
     """配置管理器测试"""
-    
+
     def test_load_example_config(self) -> None:
         """测试加载示例配置"""
-        config_path = Path('config/config.example.yaml')
+        config_path = Path("config/config.example.yaml")
         if not config_path.exists():
             self.skipTest("配置文件不存在")
-        
+
         config = ConfigManager(config_path)
         errors = config.validate()
-        
+
         # 示例配置可能有验证错误（因为是模板）
         # 这里只验证validate方法能正常工作
         self.assertIsInstance(errors, list)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

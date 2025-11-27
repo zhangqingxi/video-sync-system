@@ -2,4 +2,4 @@
 
 from src.utils.crypto import AESCrypto
 
-__all__ = ['AESCrypto']
+__all__ = ["AESCrypto"]

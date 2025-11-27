@@ -5,7 +5,7 @@ from src.infrastructure.database.tag_repository import TagRepositoryImpl
 from src.infrastructure.database.video_repository import VideoRepositoryImpl
 
 __all__ = [
-    'DatabasePool',
-    'VideoRepositoryImpl',
-    'TagRepositoryImpl',
+    "DatabasePool",
+    "VideoRepositoryImpl",
+    "TagRepositoryImpl",
 ]

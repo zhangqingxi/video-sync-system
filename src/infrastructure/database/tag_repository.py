@@ -104,7 +104,7 @@ class TagRepositoryImpl:
         """
         try:
             query: str = f"""
-                SELECT COUNT(*) as countFROM {self.video_tag_table} WHERE douban_id = %s
+                SELECT COUNT(*) as count FROM {self.video_tag_table} WHERE douban_id = %s
             """
             results: list[dict[str, Any]] = self.db_pool.execute_query(
                 query=query, params=(douban_id,)

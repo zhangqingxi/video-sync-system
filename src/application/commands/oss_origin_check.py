@@ -90,14 +90,16 @@ class OSSOriginCheckCommand(BaseCommand):
                         else:
                             self.logger.info(f"资源存在: ID={video_id}")
 
-                        # 更新进度
-                        state_manager.update_last_checked_oss_origin(video_id=video_id)
-
                         if checked_count % 10 == 0:
                             self.logger.info(f"检查进度: {checked_count}/{len(videos)}")
 
                     except Exception as e:
                         self.logger.error(f"检查失败: ID={video_id}, Error={e}")
+
+            # 更新为本批次的最大ID（所有线程完成后统一更新）
+            if videos:
+                max_id: int = max(v["vod_douban_id"] for v in videos)
+                state_manager.update_last_checked_oss_origin(video_id=max_id)
 
             self.logger.info("=" * 60)
             self.logger.info(f"检查完成: 总数={checked_count}, 失败={failed_count}")

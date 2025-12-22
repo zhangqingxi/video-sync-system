@@ -111,16 +111,16 @@ class BaseStorageAdapter(ABC):
 
         # 构建路径
         if resource_episode is not None:
-            # 剧集路径：video_data/{id}/{encrypted}/{episode}/{encrypted_ep}/filename
+            # 剧集路径：short_video/{origin}/{id}/{encrypted}/{episode}/{encrypted_ep}/filename
             vod_ep_str: str = f"{resource_origin}|{resource_id}|{resource_episode}"
             vod_ep_encrypted: str = crypto.encrypt(plaintext=vod_ep_str)
             vod_ep_hex: str = (
                 vod_ep_encrypted.replace("+", "-").replace("/", "_").replace("=", "")
             )
-            return f"video_data/{resource_id}/{vod_hex}/{resource_episode}/{vod_ep_hex}/{resource_filename}"
+            return f"short_video/{resource_origin}/{resource_id}/{vod_hex}/{resource_episode}/{vod_ep_hex}/{resource_filename}"
         else:
-            # 封面路径：video_data/{id}/{encrypted}/filename
-            return f"video_data/{resource_id}/{vod_hex}/{resource_filename}"
+            # 封面路径：short_video/{origin}/{id}/{encrypted}/filename
+            return f"short_video/{resource_origin}/{resource_id}/{vod_hex}/{resource_filename}"
 
     def process_single_video_sync(
         self,

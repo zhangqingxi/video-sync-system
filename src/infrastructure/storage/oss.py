@@ -42,6 +42,10 @@ class OSSAdapter(BaseStorageAdapter):
             cfg: oss.config.Config = oss.config.load_default()
             cfg.credentials_provider = credentials_provider
             cfg.region = config.region
+            
+            # 设置超时时间（秒）
+            cfg.connect_timeout = config.connect_timeout  # 连接超时
+            cfg.readwrite_timeout = config.request_timeout  # 读写超时，使用配置文件中的值
 
             # 创建客户端
             self._client: oss.Client = oss.Client(cfg)
@@ -57,7 +61,7 @@ class OSSAdapter(BaseStorageAdapter):
         self, key: str, content: bytes, content_type: str | None = None
     ) -> bool:
         """
-        上传文件到OSS
+        上传文件到OSS（带重试机制）
 
         Args:
             key: 对象键名
@@ -67,24 +71,42 @@ class OSSAdapter(BaseStorageAdapter):
         Returns:
             bool: 是否成功
         """
-        try:
-            # 构建请求
-            request: oss.PutObjectRequest = oss.PutObjectRequest(
-                bucket=self._bucket_name, key=key, body=BytesIO(content)
-            )
+        max_retries: int = 3  # 最大重试次数
+        
+        for attempt in range(max_retries):
+            try:
+                # 创建 BytesIO 对象
+                body = BytesIO(content)
+                
+                # 构建请求
+                request: oss.PutObjectRequest = oss.PutObjectRequest(
+                    bucket=self._bucket_name, key=key, body=body
+                )
 
-            # 设置Content-Type
-            if content_type:
-                request.headers = {"Content-Type": content_type}
+                # 设置Content-Type
+                if content_type:
+                    request.headers = {"Content-Type": content_type}
 
-            # 上传
-            result: oss.PutObjectResult = self._client.put_object(request)
+                # 上传
+                result: oss.PutObjectResult = self._client.put_object(request)
 
-            self.logger.info(f"OSS上传成功: {key}, ETag={result.etag}")
-            return True
-        except Exception as e:
-            self.logger.error(f"OSS上传失败 ({key}): {e}")
-            return False
+                self.logger.info(f"OSS上传成功: {key}, ETag={result.etag}")
+                return True
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # 未达到最大重试次数，记录警告并重试
+                    self.logger.warning(
+                        f"OSS上传失败 ({key}), 第{attempt + 1}/{max_retries}次尝试: {e}"
+                    )
+                    # 等待一段时间再重试
+                    import time
+                    time.sleep(2 ** attempt)  # 指数退避: 1s, 2s, 4s
+                else:
+                    # 最后一次尝试失败，记录错误
+                    self.logger.error(f"OSS上传失败 ({key}): {e}")
+                    return False
+        
+        return False
 
     def check_exists(self, key: str) -> bool:
         """

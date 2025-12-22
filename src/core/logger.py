@@ -62,23 +62,28 @@ class CommandLogger(LoggerProvider):
 
     def debug(self, message: str, **kwargs: Any) -> None:
         """记录DEBUG级别日志"""
-        self._logger.debug(message, **kwargs)
+        # stacklevel=2 表示跳过当前方法，记录调用者的信息
+        self._logger.debug(message, stacklevel=2, **kwargs)
 
     def info(self, message: str, **kwargs: Any) -> None:
         """记录INFO级别日志"""
-        self._logger.info(message, **kwargs)
+        # stacklevel=2 表示跳过当前方法，记录调用者的信息
+        self._logger.info(message, stacklevel=2, **kwargs)
 
     def warning(self, message: str, **kwargs: Any) -> None:
         """记录WARNING级别日志"""
-        self._logger.warning(message, **kwargs)
+        # stacklevel=2 表示跳过当前方法，记录调用者的信息
+        self._logger.warning(message, stacklevel=2, **kwargs)
 
     def error(self, message: str, **kwargs: Any) -> None:
         """记录ERROR级别日志"""
-        self._logger.error(message, **kwargs)
+        # stacklevel=2 表示跳过当前方法，记录调用者的信息
+        self._logger.error(message, stacklevel=2, **kwargs)
 
     def critical(self, message: str, **kwargs: Any) -> None:
         """记录CRITICAL级别日志"""
-        self._logger.critical(message, **kwargs)
+        # stacklevel=2 表示跳过当前方法，记录调用者的信息
+        self._logger.critical(message, stacklevel=2, **kwargs)
 
 
 class LoggerManager:

@@ -44,6 +44,7 @@ class StorageConfig:
     region: str
     bucket: str
     encryption_key: str
+    connect_timeout: int = 30
     request_timeout: int = 60
 
 

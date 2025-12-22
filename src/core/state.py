@@ -24,12 +24,12 @@ class StateData:
 
     # S3同步失败ID
     s3_failed_synced_origin_m3u8_ids: list[int] = field(default_factory=list)
-    s3_failed_synced_index_m3u8_ids: list[int] = field(default_factory=list)
+    s3_failed_synced_index_m3u8_ids: dict[str, list[int]] = field(default_factory=dict)
     s3_failed_synced_cover_ids: list[int] = field(default_factory=list)
 
     # OSS同步失败ID
     oss_failed_synced_origin_m3u8_ids: list[int] = field(default_factory=list)
-    oss_failed_synced_index_m3u8_ids: list[int] = field(default_factory=list)
+    oss_failed_synced_index_m3u8_ids: dict[str, list[int]] = field(default_factory=dict)
     oss_failed_synced_cover_ids: list[int] = field(default_factory=list)
 
     # 站点同步失败ID (按域名分组)
@@ -123,21 +123,25 @@ class StateManager:
             self._state.s3_failed_synced_origin_m3u8_ids.remove(video_id)
             self._save()
 
-    def get_s3_failed_index_ids(self) -> list[int]:
-        """获取S3 index失败ID列表"""
+    def get_s3_failed_index_episodes(self) -> dict[str, list[int]]:
+        """获取S3 index失败集数"""
         return self._state.s3_failed_synced_index_m3u8_ids.copy()
 
-    def add_s3_failed_index_id(self, video_id: int) -> None:
-        """添加S3 index失败ID"""
+    def add_s3_failed_index_episodes(self, video_id: int, episodes: list[int]) -> None:
+        """添加S3 index失败集数"""
         if video_id not in self._state.s3_failed_synced_index_m3u8_ids:
-            self._state.s3_failed_synced_index_m3u8_ids.append(video_id)
-            self._save()
+            self._state.s3_failed_synced_index_m3u8_ids[str(video_id)] = []
 
-    def remove_s3_failed_index_id(self, video_id: int) -> None:
-        """移除S3 index失败ID"""
-        if video_id in self._state.s3_failed_synced_index_m3u8_ids:
-            self._state.s3_failed_synced_index_m3u8_ids.remove(video_id)
-            self._save()
+        self._state.s3_failed_synced_index_m3u8_ids[str(video_id)] = episodes
+        self._save()
+
+    def remove_s3_failed_index_episodes(self, video_id: int, episodes: list[int] | None = None) -> None:
+        """移除S3 index失败集数"""
+        if episodes is None:
+            del self._state.s3_failed_synced_index_m3u8_ids[str(video_id)]
+        else:
+            self._state.s3_failed_synced_index_m3u8_ids[str(video_id)] = episodes
+        self._save()
 
     def get_s3_failed_cover_ids(self) -> list[int]:
         """获取S3 cover失败ID列表"""
@@ -173,21 +177,25 @@ class StateManager:
             self._state.oss_failed_synced_origin_m3u8_ids.remove(video_id)
             self._save()
 
-    def get_oss_failed_index_ids(self) -> list[int]:
-        """获取OSS index失败ID列表"""
+    def get_oss_failed_index_episodes(self) -> dict[str, list[int]]:
+        """获取OSS index失败集数"""
         return self._state.oss_failed_synced_index_m3u8_ids.copy()
 
-    def add_oss_failed_index_id(self, video_id: int) -> None:
-        """添加OSS index失败ID"""
+    def add_oss_failed_index_episodes(self, video_id: int, episodes: list[int]) -> None:
+        """添加OSS index失败集数"""
         if video_id not in self._state.oss_failed_synced_index_m3u8_ids:
-            self._state.oss_failed_synced_index_m3u8_ids.append(video_id)
-            self._save()
+            self._state.oss_failed_synced_index_m3u8_ids[str(video_id)] = []
 
-    def remove_oss_failed_index_id(self, video_id: int) -> None:
-        """移除OSS index失败ID"""
-        if video_id in self._state.oss_failed_synced_index_m3u8_ids:
-            self._state.oss_failed_synced_index_m3u8_ids.remove(video_id)
-            self._save()
+        self._state.oss_failed_synced_index_m3u8_ids[str(video_id)] = episodes
+        self._save()
+
+    def remove_oss_failed_index_episodes(self, video_id: int, episodes: list[int] | None = None) -> None:
+        """移除OSS index失败集数"""
+        if episodes is None:
+            del self._state.oss_failed_synced_index_m3u8_ids[str(video_id)]
+        else:
+            self._state.oss_failed_synced_index_m3u8_ids[str(video_id)] = episodes
+        self._save()
 
     def get_oss_failed_cover_ids(self) -> list[int]:
         """获取OSS cover失败ID列表"""

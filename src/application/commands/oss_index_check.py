@@ -55,7 +55,7 @@ class OSSIndexCheckCommand(BaseCommand):
 
             # 获取待检查的视频列表
             videos: list[dict[str, Any]] = video_repo.get_videos_after_id(
-                last_id=last_checked_id, limit=2000
+                last_id=last_checked_id, limit=5000
             )
             if not videos:
                 self.logger.info("没有需要检查的视频")

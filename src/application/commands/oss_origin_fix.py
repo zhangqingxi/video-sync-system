@@ -15,6 +15,7 @@ from src.core.state import StateManager
 from src.infrastructure.storage import StorageFactory
 from src.infrastructure.http import HTTPClient
 from src.domain.services import APIService
+from src.infrastructure.database import VideoRepositoryImpl
 from src.core.protocols import StorageProvider
 
 
@@ -38,6 +39,9 @@ class OSSOriginFixCommand(BaseCommand):
 
             # 获取依赖
             state_manager: StateManager = self.container.resolve(interface=StateManager)
+            video_repo: VideoRepositoryImpl = self.container.resolve(
+                interface=VideoRepositoryImpl
+            )
 
             # 创建OSS存储适配器
             oss_adapter: StorageProvider = StorageFactory.create_oss(
@@ -62,14 +66,16 @@ class OSSOriginFixCommand(BaseCommand):
             )
 
             # 获取失败ID列表
-            failed_ids: list[int] = state_manager.get_oss_failed_origin_ids()
-
-            if not failed_ids:
+            failed_data: dict[str, list[int]] = state_manager.get_oss_failed_origin_episodes()
+            if not failed_data:
                 self.logger.info("没有需要修复的资源")
                 http_client.close()
                 return 0
-
-            self.logger.info(f"待修复资源数量: {len(failed_ids)}")
+            
+            # 获取失败的视频ID列表
+            video_ids: list = list(failed_data.keys())
+            videos: list[dict[str, Any]] = video_repo.get_videos_batch(video_ids=video_ids)
+            self.logger.info(f"待修复视频数量: {len(videos)}")
 
             # 使用线程池并发同步
             thread_count: int = self.config.threads.sync_threads
@@ -78,30 +84,40 @@ class OSSOriginFixCommand(BaseCommand):
             video_id: int
 
             with ThreadPoolExecutor(max_workers=thread_count) as executor:
-                futures: dict[Future[bool], int] = {}
-                for video_id in failed_ids:
-                    future = executor.submit(
-                        self._sync_video, video_id, api_service, oss_adapter
+                futures: dict[Future[dict[int, list[int]]], int] = {}
+                for video_data in videos:
+                    video_id = video_data.get('vod_douban_id', 0)
+                    video_episodes: list[int] = failed_data.get(str(video_id), [])
+                    video_origin: str = 'type_' + str(video_data.get('type_id', 0))
+                    future: Future[dict[int, list[int]]] = executor.submit(
+                        self._fix_video_origin, video_id, video_episodes, video_origin, oss_adapter, api_service
                     )
                     futures[future] = video_id
 
                 for future in as_completed(futures):
                     video_id = futures[future]
                     try:
-                        success: bool = future.result()
-
-                        if success:
+                        result: dict[int, list[int]] = future.result()
+                        
+                        if not result:
+                            # 所有集数都修复成功，移除该视频ID
                             success_count += 1
-                            # 从失败列表移除
-                            state_manager.remove_oss_failed_origin_id(video_id=video_id)
+                            state_manager.remove_oss_failed_origin_episodes(video_id=video_id)
                             self.logger.info(f"修复成功: ID={video_id}")
                         else:
+                            # 还有失败的集数，更新失败列表
                             failed_count += 1
-                            self.logger.warning(f"修复失败: ID={video_id}")
+                            for vid, episodes in result.items():
+                                state_manager.remove_oss_failed_origin_episodes(
+                                    video_id=vid, episodes=episodes
+                                )
+                                self.logger.warning(
+                                    f"修复部分失败: ID={vid}, 失败集数={episodes}"
+                                )
 
                         if (success_count + failed_count) % 10 == 0:
                             total: int = success_count + failed_count
-                            self.logger.info(f"修复进度: {total}/{len(failed_ids)}")
+                            self.logger.info(f"修复进度: {total}/{len(failed_data)}")
 
                     except Exception as e:
                         self.logger.error(f"处理失败: ID={video_id}, Error={e}")
@@ -118,48 +134,116 @@ class OSSOriginFixCommand(BaseCommand):
             self.logger.error(f"命令执行失败: {e}", exc_info=True)
             return 1
 
-    def _sync_video(
-        self, video_id: int, api_service: APIService, oss_adapter: StorageProvider
-    ) -> bool:
+    def _fix_video_origin(
+        self, 
+        video_id: int, 
+        video_episodes: list[int], 
+        video_origin: str, 
+        oss_adapter: StorageProvider,
+        api_service: APIService
+    ) -> dict[int, list[int]]:
         """
-        同步单个视频
+        修复单个视频的Origin资源
 
         Args:
             video_id: 视频ID
-            api_service: API服务
+            video_episodes: 需要修复的集数列表
+            video_origin: 视频原始文件夹
             oss_adapter: OSS适配器
+            api_service: API服务
 
         Returns:
-            bool: 是否成功
+            dict[int, list[int]]: 仍然失败的集数 {video_id: [video_episodes]}
         """
         try:
-            # 1. 从API获取最新详情
-            detail_data: dict[str, Any] | None = api_service.fetch_video_detail(
-                video_id=str(video_id)
-            )
+            failed_episodes: list[int] = []
 
-            if not detail_data:
-                self.logger.warning(f"无法获取视频详情，跳过: ID={video_id}")
-                return False
+            # # 1. 从API获取最新详情
+            # detail_data: dict[str, Any] | None = api_service.fetch_video_detail(
+            #     video_id=str(video_id)
+            # )
 
-            # 2. 提取数据
-            title: str = detail_data.get("title", "")
-            cover: str = detail_data.get("cover", "")
-            video_list: list[str] = detail_data.get("video_list", [])
+            # video_list: list[str] = detail_data.get("video_list", []) 
 
-            if not video_list:
-                self.logger.warning(f"视频播放列表为空: ID={video_id}")
-                return False
+            # if not detail_data or len(video_list) == 0:
+            #     raise Exception(f"无法获取视频详情")
 
-            # 3. 调用OSS适配器同步
-            return oss_adapter.process_single_video_sync(
-                resource_id=video_id,
-                resource_title=title,
-                resource_type="origin",
-                video_list=video_list,
-                cover=cover,
-            )
+            # 只处理失败的集数
+            for episode in video_episodes:
+                # video_episode_url = video_list[episode - 1]
+                # TODO 临时构造URL
+                key: str = oss_adapter.generate_key(
+                    resource_id=video_id,
+                    resource_origin=video_origin,
+                    resource_filename="origin.m3u8",
+                    resource_episode=episode,
+                )
+
+                key = key.replace("short_video/type_16", "video_data")
+                video_episode_url = "https://short-video.zestclip.com/" + key
+
+                if self._process_episode(
+                    video_id=video_id,
+                    video_episode=episode,
+                    video_episode_url=video_episode_url,
+                    video_origin=video_origin,
+                    oss_adapter=oss_adapter
+                ):
+                    # 修复成功
+                    self.logger.info(f"集数修复成功: ID={video_id}, EP={episode}")
+                else:
+                    # 修复失败，添加到失败列表
+                    failed_episodes.append(episode)
+                    self.logger.warning(f"集数修复失败: ID={video_id}, EP={episode}")
+            
+            # 返回仍然失败的集数
+            if failed_episodes:
+                return {video_id: failed_episodes}
+            return {}
 
         except Exception as e:
-            self.logger.error(f"同步视频失败: ID={video_id}, Error={e}")
+            self.logger.error(f"修复视频Origin失败: ID={video_id}, Error={e}")
+            # 异常时，返回所有集数为失败
+            return {video_id: video_episodes}
+
+    def _process_episode(
+        self,
+        video_id: int,
+        video_episode: int,
+        video_episode_url: str,
+        video_origin: str,
+        oss_adapter: StorageProvider
+    ) -> bool:
+        """
+        修复视频集数缺失
+
+        Args:
+            oss_adapter: OSS适配器
+            video_id: 视频ID
+            video_episode: 集数
+            video_episode_url: 剧集URL
+            video_origin: 视频来源
+
+        Returns:
+            bool: 资源是否存在
+        """
+        try:
+            # 1. 生成 origin.m3u8 Key  
+            key: str = oss_adapter.generate_key(
+                resource_id=video_id,
+                resource_origin=video_origin,
+                resource_filename="origin.m3u8",
+                resource_episode=video_episode,
+            )
+
+            if not oss_adapter.upload_from_url(
+                resource_url=video_episode_url,
+                resource_type='origin',
+                resource_key=key,
+            ):
+                raise Exception(f"Origin.m3u8上传失败")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"处理分集失败: ID={video_id}, EP={video_episode}, Error={e}")
             return False

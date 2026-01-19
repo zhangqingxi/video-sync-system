@@ -23,7 +23,8 @@ class Video:
     # Detail 接口返回的字段
     video_list: list[str] = field(default_factory=list)  # m3u8 URL列表
     download_url: str = ""
-    cover: str = ""
+    title: str = "" # 视频标题
+    cover: str = "" # 视频封面
     desc: str = ""  # 视频描述
     tags: list[str] = field(default_factory=list)  # 分类标签
     total_episodes: int = 0  # 总集数
@@ -38,8 +39,9 @@ class Video:
         """从API detail接口数据更新字段"""
         self.video_list = detail_data.get("video_list", [])
         self.download_url = detail_data.get("download_url", "")
-        self.cover = detail_data.get("cover", "")
-        self.desc = detail_data.get("desc", "") or detail_data.get("c_desc", "")
+        self.title = detail_data.get("c_title", "") or detail_data.get("title", "")
+        self.cover = detail_data.get("c_cover", "") or detail_data.get("cover", "")
+        self.desc = detail_data.get("c_desc", "") or detail_data.get("desc", "")
         self.tags = detail_data.get("tags", [])
         self.total_episodes = detail_data.get("total_episodes", 0)
         self.free_watch_episodes = detail_data.get("free_watch_episodes", 0)

@@ -158,30 +158,20 @@ class OSSOriginFixCommand(BaseCommand):
         try:
             failed_episodes: list[int] = []
 
-            # # 1. 从API获取最新详情
-            # detail_data: dict[str, Any] | None = api_service.fetch_video_detail(
-            #     video_id=str(video_id)
-            # )
+            # 1. 从API获取最新详情
+            detail_data: dict[str, Any] | None = api_service.fetch_video_detail(
+                video_id=str(video_id)
+            )
 
-            # video_list: list[str] = detail_data.get("video_list", []) 
+            video_list: list[str] = detail_data.get("video_list", []) 
 
-            # if not detail_data or len(video_list) == 0:
-            #     raise Exception(f"无法获取视频详情")
+            if not detail_data or len(video_list) == 0:
+                raise Exception(f"无法获取视频详情")
 
             # 只处理失败的集数
             for episode in video_episodes:
-                # video_episode_url = video_list[episode - 1]
-                # TODO 临时构造URL
-                key: str = oss_adapter.generate_key(
-                    resource_id=video_id,
-                    resource_origin=video_origin,
-                    resource_filename="origin.m3u8",
-                    resource_episode=episode,
-                )
-
-                key = key.replace("short_video/type_16", "video_data")
-                video_episode_url = "https://short-video.zestclip.com/" + key
-
+                video_episode_url = video_list[episode - 1]
+                
                 if self._process_episode(
                     video_id=video_id,
                     video_episode=episode,
